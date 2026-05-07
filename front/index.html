@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>好棒棒點餐</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 10px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 12px;
+            border-radius: 20px;
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid white;
+        }
+        .user-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .user-name {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .content {
+            padding: 30px 20px;
+        }
+        .menu-section {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .menu-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .menu-list {
+            list-style: none;
+        }
+        .menu-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .menu-item:last-child {
+            border-bottom: none;
+        }
+        .item-name {
+            font-weight: 500;
+            color: #333;
+        }
+        .item-price {
+            font-weight: 600;
+            color: #06C755;
+            font-size: 16px;
+        }
+        .json-preview {
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+        .json-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .json-code {
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            color: #333;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            border: 1px solid #fcc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">🍔 好棒棒點餐</div>
+            <div class="user-info">
+                <div class="user-avatar">
+                    <img id="userAvatar" src="" alt="用户頭像">
+                </div>
+                <div class="user-name" id="userName">加載中...</div>
+            </div>
+        </div>
+        <div class="content">
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>加載菜單中...</p>
+            </div>
+            <div id="menuContent" style="display: none;">
+                <div class="menu-section">
+                    <div class="menu-title">📋 菜單</div>
+                    <ul class="menu-list" id="menuList">
+                    </ul>
+                </div>
+                <div class="json-preview">
+                    <div class="json-label">📄 原始 JSON 數據</div>
+                    <div class="json-code" id="jsonPreview"></div>
+                </div>
+            </div>
+            <div id="errorContent" style="display: none;">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function displayMenu(menuData) {
+            document.getElementById('loading').style.display = 'none';
+            
+            if (!menuData) {
+                document.getElementById('errorContent').style.display = 'block';
+                document.getElementById('errorContent').innerHTML = '<div class="error">❌ 未找到菜單數據</div>';
+                return;
+            }
+
+            try {
+                // 假設 Gemini 返回的格式是 [{name: "品項名稱", price: "價格"}, ...] 或 {menu_items: [...]}
+                let items = menuData;
+                console.log('[DEBUG] 初始 menuData:', menuData);
+                
+                if (typeof menuData === 'string') {
+                    items = JSON.parse(menuData);
+                }
+
+                if (!Array.isArray(items)) {
+                    // 如果是對象，試著提取數組
+                    items = items.menu_items || items.items || items.menu || [];
+                    console.log('[DEBUG] 提取後的 items:', items);
+                }
+
+                // 檢查菜單是否為空
+                if (!items || items.length === 0) {
+                    document.getElementById('errorContent').style.display = 'block';
+                    document.getElementById('errorContent').innerHTML = '<div class="error">❌ 菜單為空或無法識別</div>';
+                    return;
+                }
+
+                // 顯示菜單列表
+                const menuList = document.getElementById('menuList');
+                menuList.innerHTML = '';
+                
+                items.forEach(item => {
+                    const li = document.createElement('li');
+                    li.className = 'menu-item';
+                    
+                    // 支持多種格式的欄位名稱
+                    const itemName = item.item_name || item.name || item.品項名稱 || '未知品項';
+                    const itemPrice = item.price || item.價格 || item.價錢 || '價格未知';
+                    
+                    li.innerHTML = `
+                        <span class="item-name">${itemName}</span>
+                        <span class="item-price">$${itemPrice}</span>
+                    `;
+                    menuList.appendChild(li);
+                });
+
+                // 顯示原始 JSON
+                document.getElementById('jsonPreview').textContent = JSON.stringify(items, null, 2);
+                document.getElementById('menuContent').style.display = 'block';
+                console.log('[SUCCESS] 菜單成功顯示，共 ' + items.length + ' 項');
+
+            } catch (error) {
+                console.error('菜單解析失敗:', error);
+                document.getElementById('errorContent').style.display = 'block';
+                document.getElementById('errorContent').innerHTML = `<div class="error">菜單數據格式錯誤: ${error.message}</div>`;
+            }
+        }
+
+        // 頁面加載完成後初始化 LIFF
+        async function initLiff() {
+            try {
+                console.log('[0] 獲取配置信息...');
+                // 從後端獲取 LIFF ID
+                const configResponse = await fetch('/api/config');
+                const config = await configResponse.json();
+                const liffId = config.liffId;
+                console.log('[0b] 獲得 LIFF ID:', liffId);
+                
+                console.log('[1] 檢查 LIFF SDK...');
+                console.log('[DEBUG] window.liff =', typeof window.liff);
+                console.log('[DEBUG] liff =', typeof liff);
+                
+                // 嘗試不同的方式訪問 liff
+                let liffObj = null;
+                if (typeof window.liff !== 'undefined') {
+                    liffObj = window.liff;
+                    console.log('[1b] 從 window.liff 找到');
+                } else if (typeof liff !== 'undefined') {
+                    liffObj = liff;
+                    console.log('[1c] 從全局 liff 找到');
+                } else {
+                    console.error('[ERROR] liff 對象不存在');
+                    throw new Error('LIFF SDK 未在 LINE LIFF 環境中加載');
+                }
+
+                console.log('[2] 初始化 LIFF...');
+                console.log('[DEBUG] LIFF ID:', liffId);
+                
+                // 使用 .then/.catch 方式捕獲詳細錯誤
+                await liffObj.init({ liffId: liffId })
+                    .then(() => {
+                        console.log('[2b] LIFF 初始化成功');
+                    })
+                    .catch((err) => {
+                        throw new Error(`LIFF init 失敗: ${err.message}`);
+                    });
+                
+                console.log('[3] 檢查登入狀態...');
+                if (!liffObj.isLoggedIn()) {
+                    console.log('[4] 未登入，跳轉到登入...');
+                    liffObj.login();
+                    return;
+                }
+
+                console.log('[5] 獲取用户信息...');
+                const profile = await liffObj.getProfile();
+                console.log('[6] 獲得用户信息:', profile);
+                
+                document.getElementById('userName').textContent = profile.displayName;
+                document.getElementById('userAvatar').src = profile.pictureUrl;
+
+                console.log('[7] 獲取 session ID...');
+                const urlParams = new URLSearchParams(window.location.search);
+                const sessionId = urlParams.get('session');
+                console.log('[8] Session ID:', sessionId);
+                console.log('[8b] 完整 URL:', window.location.href);
+                console.log('[8c] URL params:', Array.from(urlParams.entries()));
+                
+                if (sessionId) {
+                    console.log('[9] 從後端獲取菜單...');
+                    try {
+                        const menuUrl = `/api/menu/${sessionId}`;
+                        console.log('[9b] 請求 URL:', menuUrl);
+                        const response = await fetch(menuUrl);
+                        console.log('[10] 後端回應狀態:', response.status);
+                        console.log('[10b] 響應頭:', response.headers);
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log('[11] 菜單數據:', data);
+                            console.log('[11b] data.menu:', data.menu);
+                            displayMenu(data.menu);
+                        } else {
+                            console.error('[12] 後端返回錯誤:', response.status);
+                            const errorText = await response.text();
+                            console.error('[12b] 錯誤詳情:', errorText);
+                            displayMenu(null);
+                        }
+                    } catch (error) {
+                        console.error('[13] 獲取菜單失敗:', error);
+                        displayMenu(null);
+                    }
+                } else {
+                    console.log('[14] 沒有 session ID');
+                    displayMenu(null);
+                }
+
+            } catch (error) {
+                console.error('❌ LIFF 初始化失敗:', error);
+                
+                // 顯示 alert 讓用户知道錯誤
+                alert("抓到錯誤了：" + error.message);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('errorContent').style.display = 'block';
+                
+                let errorMsg = error.message;
+                if (error.message.includes('未在 LINE LIFF 環境')) {
+                    errorMsg += '<br><br><strong>解決方案：</strong><br>1. 請確認通過 LINE 的 LIFF 按鈕打開此頁面<br>2. 檢查 LINE Developer Console 中 LIFF 的 Endpoint URL 設定<br>3. 確保 LIFF ID 正確';
+                }
+                
+                document.getElementById('errorContent').innerHTML = `<div class="error">❌ LIFF 初始化失敗<br>${errorMsg}<br><small style="margin-top:10px;display:block">詳情見瀏覽器 F12 控制台</small></div>`;
+            }
+        }
+
+        // 直接嘗試初始化
+        console.log('[START] 開始初始化...');
+        
+        // 等待頁面加載完成
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('[DOMContentLoaded] 開始 initLiff()');
+                initLiff();
+            });
+        } else {
+            console.log('[Ready] 直接執行 initLiff()');
+            initLiff();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# 這樣寫會忽略專案內「所有」資料夾底下的 .env 檔案
+.env
+
+# 忽略 Python 運作時產生的暫存檔
+__pycache__
+.pyc
+ngrok.exe
