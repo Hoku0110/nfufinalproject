@@ -306,25 +306,38 @@
                 console.log('[8c] URL params:', Array.from(urlParams.entries()));
                 
                 if (sessionId) {
-                    console.log('[9] 從後端獲取菜單...');
+                    console.log('[9] 開始辨識菜單...');
                     try {
-                        const menuUrl = `/api/menu/${sessionId}`;
-                        console.log('[9b] 請求 URL:', menuUrl);
-                        const response = await fetch(menuUrl);
-                        console.log('[10] 後端回應狀態:', response.status);
-                        console.log('[10b] 響應頭:', response.headers);
+                        // 輪詢等待辨識完成
+                        let retries = 0;
+                        const maxRetries = 120; // 最多等待 2 分鐘 (120 * 1秒)
                         
-                        if (response.ok) {
-                            const data = await response.json();
-                            console.log('[11] 菜單數據:', data);
-                            console.log('[11b] data.menu:', data.menu);
-                            displayMenu(data.menu);
-                        } else {
-                            console.error('[12] 後端返回錯誤:', response.status);
-                            const errorText = await response.text();
-                            console.error('[12b] 錯誤詳情:', errorText);
-                            displayMenu(null);
+                        while (retries < maxRetries) {
+                            const response = await fetch('/api/recognize', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({session_id: sessionId})
+                            });
+                            
+                            if (response.ok) {
+                                const data = await response.json();
+                                console.log('[10] 辨識結果:', data);
+                                
+                                if (data.status === 'completed') {
+                                    displayMenu(data.menu);
+                                    return;
+                                }
+                            }
+                            
+                            // 每 1 秒重試一次
+                            console.log(`[9.${retries}] 等待辨識... (${retries}s)`);
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            retries++;
                         }
+                        
+                        // 超時
+                        console.error('[ERROR] 菜單辨識超時');
+                        displayMenu(null);
                     } catch (error) {
                         console.error('[13] 獲取菜單失敗:', error);
                         displayMenu(null);

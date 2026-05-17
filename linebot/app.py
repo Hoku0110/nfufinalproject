@@ -75,6 +75,39 @@ def get_menu(session_id):
         return {'menu': menu_sessions[session_id]}
     return {'error': 'not found'}, 404
 
+# API端點：辨識菜單（前端呼叫）
+@app.route("/api/recognize", methods=['POST'])
+def recognize_menu():
+    session_id = request.json.get('session_id')
+    
+    if session_id not in menu_sessions:
+        return {'error': 'session not found'}, 404
+    
+    session_data = menu_sessions[session_id]
+    
+    # 如果已經辨識完成，直接返回
+    if isinstance(session_data, dict) and session_data.get('status') == 'completed':
+        return {'status': 'completed', 'menu': session_data['menu_data']}
+    
+    # 如果還在等待辨識
+    if isinstance(session_data, dict) and session_data.get('status') == 'pending':
+        try:
+            print(f"🤖 [API] 開始辨識 session {session_id}")
+            menu_data = extract_menu(session_data['image_data'])
+            
+            # 存回辨識結果
+            menu_sessions[session_id] = {
+                'status': 'completed',
+                'menu_data': menu_data
+            }
+            
+            return {'status': 'completed', 'menu': menu_data}
+        except Exception as e:
+            print(f"❌ [API] 辨識失敗: {e}")
+            return {'error': str(e), 'status': 'error'}, 500
+    
+    return {'error': 'invalid session data'}, 400
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -114,46 +147,13 @@ def handle_text_message(event):
                         message_content = line_bot_blob_api.get_message_content(quoted_id)
                         img = Image.open(io.BytesIO(message_content))
 
-                        try:
-                            # 使用 extract_menu 函數來辨識菜單
-        
-                            menu_data = extract_menu(message_content)
-         
-                            
-                            # 檢查菜單是否為空
-                            if not menu_data or not menu_data.get('menu_items') or len(menu_data.get('menu_items', [])) == 0:
-                                print(f"⚠️ [APP] 菜單為空，返回錯誤訊息")
-                                reply_text = "❌ 無法辨識菜單！可能原因：\n1. 圖片不是清晰的菜單\n2. Gemini API 配額已用盡\n3. 網路連線問題\n\n請檢查圖片品質並重試。"
-                                line_bot_api.reply_message_with_http_info(
-                                    ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
-                                )
-                                return
-                            
-                            menu_json = json.dumps(menu_data)
-                        except Exception as gemini_error:
-                            error_msg = str(gemini_error)
-                            if "429" in error_msg or "quota" in error_msg.lower():
-                                reply_text = "❌ 目前Gemini API配額已用盡，請稍後再試！"
-                            elif "401" in error_msg or "credential" in error_msg.lower():
-                                reply_text = "❌ API金鑰設定錯誤，請檢查設定。"
-                            else:
-                                reply_text = f"❌ 辨識失敗：{error_msg}"
-                            
-                            line_bot_api.reply_message_with_http_info(
-                                ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
-                            )
-                            return
-
-                        # 生成session ID並存儲菜單數據
+                        # 直接儲存二進制圖片，不等待辨識
                         session_id = str(uuid.uuid4())
-                        try:
-                            menu_data = json.loads(menu_json)
-                        except Exception as parse_error:
-                            print(f"⚠️ 無法解析菜單 JSON: {parse_error}")
-                            menu_data = menu_json
-                        
-                        print(f"💾 [APP] 存儲菜單到 session {session_id}: {menu_data}")
-                        menu_sessions[session_id] = menu_data
+                        print(f"💾 [APP] 存儲圖片到 session {session_id}")
+                        menu_sessions[session_id] = {
+                            'image_data': message_content,
+                            'status': 'pending'
+                        }
 
                         flex_dict = {
                             "type": "bubble",
@@ -167,7 +167,7 @@ def handle_text_message(event):
                                         "contents": [
                                             {
                                                 "type": "text",
-                                                "text": "🍔 好棒棒點餐團",
+                                                "text": "🍔好棒棒點餐",
                                                 "weight": "bold",
                                                 "size": "lg",
                                                 "flex": 1
