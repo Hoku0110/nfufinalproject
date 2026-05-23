@@ -148,17 +148,263 @@
             margin: 10px 0;
             border: 1px solid #fcc;
         }
+        .menu-item-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .menu-item-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .quantity-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 4px 8px;
+        }
+        .quantity-btn {
+            background: none;
+            border: none;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #667eea;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .quantity-btn:hover {
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        .quantity-btn:disabled {
+            color: #ccc;
+            cursor: not-allowed;
+        }
+        .quantity-display {
+            min-width: 30px;
+            text-align: center;
+            font-weight: 600;
+            color: #333;
+        }
+        .cart-section {
+            background: #f9f9f9;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .cart-section.show {
+            display: block;
+        }
+        .cart-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .cart-items-list {
+            list-style: none;
+            margin-bottom: 15px;
+        }
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border: 1px solid #eee;
+        }
+        .cart-item-info {
+            flex: 1;
+        }
+        .cart-item-name {
+            font-weight: 500;
+            color: #333;
+        }
+        .cart-item-qty {
+            font-size: 12px;
+            color: #666;
+            margin-top: 2px;
+        }
+        .cart-item-price {
+            font-weight: 600;
+            color: #06C755;
+            min-width: 60px;
+            text-align: right;
+        }
+        .cart-item-remove {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        .cart-item-remove:hover {
+            background: #ff5252;
+        }
+        .cart-summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 10px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+        .cart-summary-label {
+            font-weight: 600;
+            color: #333;
+        }
+        .cart-summary-total {
+            font-size: 20px;
+            font-weight: 700;
+            color: #06C755;
+        }
+        .submit-btn {
+            width: 100%;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .empty-cart-msg {
+            text-align: center;
+            color: #999;
+            padding: 20px;
+            font-style: italic;
+        }
+        .cart-icon-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            position: relative;
+            transition: transform 0.2s;
+        }
+        .cart-icon-btn:hover {
+            transform: scale(1.1);
+        }
+        .cart-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff6b6b;
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: flex-end;
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 16px 16px 0 0;
+            width: 100%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 20px;
+            animation: slideUp 0.3s ease-out;
+        }
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+        }
+        .modal-close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+        .modal-close-btn:hover {
+            color: #333;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <div class="title">🍔 好棒棒點餐</div>
-            <div class="user-info">
-                <div class="user-avatar">
-                    <img id="userAvatar" src="" alt="用户頭像">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <button class="cart-icon-btn" id="cartIconBtn">
+                    🛒
+                    <span class="cart-badge" id="cartBadge" style="display: none;">0</span>
+                </button>
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <img id="userAvatar" src="" alt="用户頭像">
+                    </div>
+                    <div class="user-name" id="userName">加載中...</div>
                 </div>
-                <div class="user-name" id="userName">加載中...</div>
             </div>
         </div>
         <div class="content">
@@ -172,9 +418,24 @@
                     <ul class="menu-list" id="menuList">
                     </ul>
                 </div>
-                <div class="json-preview">
-                    <div class="json-label">📄 原始 JSON 數據</div>
-                    <div class="json-code" id="jsonPreview"></div>
+            </div>
+            
+            <!-- 購物車 Modal -->
+            <div class="modal-overlay" id="cartModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <div class="modal-title">🛒 購物車</div>
+                        <button class="modal-close-btn" id="cartCloseBtn">✕</button>
+                    </div>
+                    <ul class="cart-items-list" id="cartItemsList"></ul>
+                    <div class="empty-cart-msg" id="emptyCartMsg">購物車是空的，請選擇餐點</div>
+                    <div id="cartSummaryDiv" style="display: none;">
+                        <div class="cart-summary">
+                            <span class="cart-summary-label">總計：</span>
+                            <span class="cart-summary-total" id="cartTotal">$0</span>
+                        </div>
+                        <button class="submit-btn" id="submitOrderBtn">📤 送出訂單</button>
+                    </div>
                 </div>
             </div>
             <div id="errorContent" style="display: none;">
@@ -183,6 +444,150 @@
     </div>
 
     <script>
+        // 購物車數據儲存
+        let cart = {};
+        let menuDataGlobal = [];
+        let userIdGlobal = '';
+        let groupIdGlobal = '';
+        let sessionIdGlobal = '';
+        
+        function addToCart(itemName, itemPrice) {
+            if (cart[itemName]) {
+                cart[itemName].quantity++;
+            } else {
+                cart[itemName] = {
+                    price: itemPrice,
+                    quantity: 1
+                };
+            }
+            updateCartDisplay();
+        }
+        
+        function removeFromCart(itemName) {
+            delete cart[itemName];
+            updateCartDisplay();
+        }
+        
+        function updateQuantity(itemName, delta) {
+            // 如果購物車沒有該項，先取得價格加入
+            if (!cart[itemName]) {
+                const itemPrice = menuDataGlobal.find(item => {
+                    const name = item.item_name || item.name || item.品項名稱;
+                    return name === itemName;
+                })?.price || 0;
+                
+                if (delta > 0) {
+                    cart[itemName] = {
+                        price: itemPrice,
+                        quantity: delta
+                    };
+                }
+            } else {
+                // 已經在購物車，更新數量
+                cart[itemName].quantity += delta;
+                if (cart[itemName].quantity <= 0) {
+                    delete cart[itemName];
+                }
+            }
+            updateCartDisplay();
+        }
+        
+        function updateCartDisplay() {
+            const cartItemsList = document.getElementById('cartItemsList');
+            const emptyCartMsg = document.getElementById('emptyCartMsg');
+            const cartSummaryDiv = document.getElementById('cartSummaryDiv');
+            const cartBadge = document.getElementById('cartBadge');
+            
+            // 更新菜單上的數字顯示
+            const qtyElements = document.querySelectorAll('.quantity-display');
+            qtyElements.forEach(element => {
+                const itemName = element.getAttribute('data-item-name');
+                element.textContent = cart[itemName]?.quantity || 0;
+            });
+            
+            cartItemsList.innerHTML = '';
+            let total = 0;
+            let itemCount = 0;
+            
+            for (const [itemName, itemData] of Object.entries(cart)) {
+                itemCount++;
+                const subtotal = itemData.price * itemData.quantity;
+                total += subtotal;
+                
+                const li = document.createElement('li');
+                li.className = 'cart-item';
+                li.innerHTML = `
+                    <div class="cart-item-info">
+                        <div class="cart-item-name">${itemName}</div>
+                        <div class="cart-item-qty">$${itemData.price} × ${itemData.quantity}</div>
+                    </div>
+                    <div class="cart-item-price">$${subtotal}</div>
+                    <button class="cart-item-remove" data-item-name="${itemName}">移除</button>
+                `;
+                cartItemsList.appendChild(li);
+            }
+            
+            if (itemCount === 0) {
+                emptyCartMsg.style.display = 'block';
+                cartSummaryDiv.style.display = 'none';
+                cartBadge.style.display = 'none';
+            } else {
+                emptyCartMsg.style.display = 'none';
+                cartSummaryDiv.style.display = 'block';
+                document.getElementById('cartTotal').textContent = '$' + total;
+                // 更新購物車徽章
+                cartBadge.textContent = itemCount;
+                cartBadge.style.display = 'flex';
+            }
+        }
+        
+        function openCart() {
+            document.getElementById('cartModal').classList.add('show');
+        }
+        
+        function closeCart() {
+            document.getElementById('cartModal').classList.remove('show');
+        }
+        
+        async function submitOrder() {
+            if (Object.keys(cart).length === 0) {
+                alert('購物車是空的，請選擇餐點');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submitOrderBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '📤 送出中...';
+            
+            try {
+                const response = await fetch('/api/order', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        group_id: groupIdGlobal,
+                        user_id: userIdGlobal,
+                        order_items: cart
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`✅ 訂單已送出！\n你的小計: $${data.user_total}\n群組總計: $${data.group_total}\n已點餐人數: ${data.user_count}`);
+                    cart = {};
+                    updateCartDisplay();
+                } else {
+                    const errorData = await response.json();
+                    alert('❌ 送出訂單失敗: ' + (errorData.error || '未知錯誤'));
+                }
+            } catch (error) {
+                console.error('送出訂單錯誤:', error);
+                alert('❌ 送出訂單失敗: ' + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '📤 送出訂單';
+            }
+        }
+        
         function displayMenu(menuData) {
             document.getElementById('loading').style.display = 'none';
             
@@ -193,7 +598,6 @@
             }
 
             try {
-                // 假設 Gemini 返回的格式是 [{name: "品項名稱", price: "價格"}, ...] 或 {menu_items: [...]}
                 let items = menuData;
                 console.log('[DEBUG] 初始 menuData:', menuData);
                 
@@ -202,40 +606,46 @@
                 }
 
                 if (!Array.isArray(items)) {
-                    // 如果是對象，試著提取數組
                     items = items.menu_items || items.items || items.menu || [];
                     console.log('[DEBUG] 提取後的 items:', items);
                 }
 
-                // 檢查菜單是否為空
                 if (!items || items.length === 0) {
                     document.getElementById('errorContent').style.display = 'block';
                     document.getElementById('errorContent').innerHTML = '<div class="error">❌ 菜單為空或無法識別</div>';
                     return;
                 }
 
-                // 顯示菜單列表
+                menuDataGlobal = items;
                 const menuList = document.getElementById('menuList');
                 menuList.innerHTML = '';
                 
-                items.forEach(item => {
+                items.forEach((item, index) => {
                     const li = document.createElement('li');
                     li.className = 'menu-item';
                     
-                    // 支持多種格式的欄位名稱
                     const itemName = item.item_name || item.name || item.品項名稱 || '未知品項';
-                    const itemPrice = item.price || item.價格 || item.價錢 || '價格未知';
+                    const itemPrice = parseInt(item.price || item.價格 || item.價錢 || 0);
+                    const itemId = `qty-item-${index}`;
                     
                     li.innerHTML = `
-                        <span class="item-name">${itemName}</span>
-                        <span class="item-price">$${itemPrice}</span>
+                        <div class="menu-item-container">
+                            <div class="menu-item-info">
+                                <span class="item-name">${itemName}</span>
+                                <span class="item-price">$${itemPrice}</span>
+                            </div>
+                            <div class="quantity-controls">
+                                <button class="quantity-btn" data-item-name="${itemName}" data-delta="-1">−</button>
+                                <span class="quantity-display" id="${itemId}" data-item-name="${itemName}">${cart[itemName]?.quantity || 0}</span>
+                                <button class="quantity-btn" data-item-name="${itemName}" data-delta="1">+</button>
+                            </div>
+                        </div>
                     `;
                     menuList.appendChild(li);
                 });
 
-                // 顯示原始 JSON
-                document.getElementById('jsonPreview').textContent = JSON.stringify(items, null, 2);
                 document.getElementById('menuContent').style.display = 'block';
+                document.getElementById('submitOrderBtn').onclick = submitOrder;
                 console.log('[SUCCESS] 菜單成功顯示，共 ' + items.length + ' 項');
 
             } catch (error) {
@@ -295,15 +705,21 @@
                 const profile = await liffObj.getProfile();
                 console.log('[6] 獲得用户信息:', profile);
                 
+                userIdGlobal = profile.userId;
                 document.getElementById('userName').textContent = profile.displayName;
                 document.getElementById('userAvatar').src = profile.pictureUrl;
 
-                console.log('[7] 獲取 session ID...');
+                console.log('[7] 獲取 session ID 和 group ID...');
                 const urlParams = new URLSearchParams(window.location.search);
                 const sessionId = urlParams.get('session');
+                const groupId = urlParams.get('group');
+                sessionIdGlobal = sessionId;
+                groupIdGlobal = groupId;
                 console.log('[8] Session ID:', sessionId);
-                console.log('[8b] 完整 URL:', window.location.href);
-                console.log('[8c] URL params:', Array.from(urlParams.entries()));
+                console.log('[8b] Group ID:', groupId);
+                console.log('[8c] User ID:', userIdGlobal);
+                console.log('[8d] 完整 URL:', window.location.href);
+                console.log('[8e] URL params:', Array.from(urlParams.entries()));
                 
                 if (sessionId) {
                     console.log('[9] 開始辨識菜單...');
@@ -367,6 +783,34 @@
 
         // 直接嘗試初始化
         console.log('[START] 開始初始化...');
+        
+        // 購物車 Modal 事件監聽器
+        document.getElementById('cartIconBtn').addEventListener('click', openCart);
+        document.getElementById('cartCloseBtn').addEventListener('click', closeCart);
+        
+        // 點擊 modal 外面關閉
+        document.getElementById('cartModal').addEventListener('click', (event) => {
+            if (event.target.id === 'cartModal') {
+                closeCart();
+            }
+        });
+        
+        // 購物車項目移除按鈕事件委託
+        document.getElementById('cartItemsList').addEventListener('click', (event) => {
+            if (event.target.classList.contains('cart-item-remove')) {
+                const itemName = event.target.getAttribute('data-item-name');
+                removeFromCart(itemName);
+            }
+        });
+        
+        // 菜單項目數量按鈕事件委託
+        document.addEventListener('click', (event) => {
+            if (event.target.classList.contains('quantity-btn') && event.target.getAttribute('data-item-name')) {
+                const itemName = event.target.getAttribute('data-item-name');
+                const delta = parseInt(event.target.getAttribute('data-delta'));
+                updateQuantity(itemName, delta);
+            }
+        });
         
         // 等待頁面加載完成
         if (document.readyState === 'loading') {

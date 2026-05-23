@@ -28,6 +28,8 @@ LIFF_URL_BASE = os.getenv('LIFF_URL_BASE', 'https://localhost:5000')
 
 # 臨時存儲菜單數據
 menu_sessions = {}
+# 臨時存儲訂單數據
+orders_data = {}
 
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -108,6 +110,75 @@ def recognize_menu():
     
     return {'error': 'invalid session data'}, 400
 
+# API端點：提交訂單
+@app.route("/api/order", methods=['POST'])
+def submit_order():
+    try:
+        data = request.json
+        group_id = data.get('group_id')
+        user_id = data.get('user_id')
+        order_items = data.get('order_items', {})
+        
+        if not group_id or not user_id:
+            return {'error': 'group_id and user_id are required'}, 400
+        
+        if not order_items:
+            return {'error': 'order_items is empty'}, 400
+        
+        # 初始化群組訂單
+        if group_id not in orders_data:
+            orders_data[group_id] = {}
+        
+        # 計算使用者的訂單總額
+        total = 0
+        order_details = []
+        for item_name, item_data in order_items.items():
+            subtotal = item_data['price'] * item_data['quantity']
+            total += subtotal
+            order_details.append({
+                'item': item_name,
+                'price': item_data['price'],
+                'quantity': item_data['quantity'],
+                'subtotal': subtotal
+            })
+        
+        # 存儲到群組內該使用者的訂單
+        orders_data[group_id][user_id] = {
+            'items': order_details,
+            'total': total
+        }
+        
+        # 計算群組總訂單統計
+        group_total = 0
+        group_item_count = 0
+        user_count = len(orders_data[group_id])
+        
+        for user_order in orders_data[group_id].values():
+            group_total += user_order['total']
+            group_item_count += len(user_order['items'])
+        
+        # 格式化回應信息
+        order_text = f"✅ 訂單已記錄 (群組 ID: {group_id})\n"
+        order_text += f"👤 你的訂單: ${total}\n"
+        order_text += f"👥 已點餐人數: {user_count}\n"
+        order_text += f"📦 群組品項總數: {group_item_count}\n"
+        order_text += f"💰 群組總計: ${group_total}"
+        
+        print(f"✅ [訂單] 群組 {group_id} - 使用者 {user_id}: ${total}")
+        print(f"   群組總計: ${group_total} (已有 {user_count} 人點餐)")
+        
+        return {
+            'status': 'success',
+            'user_total': total,
+            'group_total': group_total,
+            'user_count': user_count,
+            'order_text': order_text
+        }, 200
+        
+    except Exception as e:
+        print(f"❌ [訂單] 提交訂單錯誤: {e}")
+        return {'error': str(e)}, 500
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -138,6 +209,8 @@ def handle_text_message(event):
                 if quoted_id:
                     try:
                         user_id = event.source.user_id
+                        group_id = event.source.group_id  # 取得群組 ID
+                        
                         try:
                             profile = line_bot_api.get_profile(user_id)
                             user_name = profile.display_name
@@ -194,7 +267,7 @@ def handle_text_message(event):
                                         "action": {
                                             "type": "uri",
                                             "label": "前往點餐",
-                                            "uri": f"https://liff.line.me/{LIFF_ID}?session={session_id}"
+                                            "uri": f"https://liff.line.me/{LIFF_ID}?session={session_id}&group={group_id}"
                                         },
                                         "style": "primary",
                                         "color": "#06C755"
@@ -221,8 +294,56 @@ def handle_text_message(event):
                         reply_text = f"讀取或辨識圖片失敗：{str(e)}"
                 else:
                     reply_text = "請先上傳一張菜單，然後「長按該菜單照片選擇回覆」，再輸入「@機器人 開團」！"
+            
+            elif real_command == "統整":
+                group_id = event.source.group_id
+                
+                if not group_id:
+                    reply_text = "❌ 此指令只能在群組中使用"
+                elif group_id not in orders_data or not orders_data[group_id]:
+                    reply_text = "📋 目前還沒有人點餐，群組訂單為空"
+                else:
+                    # 統整該群組的所有訂單
+                    group_orders = orders_data[group_id]
+                    total_amount = 0
+                    order_details = []
+                    
+                    for user_id, user_order in group_orders.items():
+                        user_total = user_order['total']
+                        total_amount += user_total
+                        
+                        try:
+                            profile = line_bot_api.get_profile(user_id)
+                            user_name = profile.display_name
+                        except:
+                            user_name = f"使用者 {user_id[:8]}"
+                        
+                        items_str = "、".join([
+                            f"{item['item']}({item['quantity']}份)" 
+                            for item in user_order['items']
+                        ])
+                        
+                        order_details.append({
+                            'user_name': user_name,
+                            'items': items_str,
+                            'subtotal': user_total
+                        })
+                    
+                    # 格式化回覆訊息
+                    reply_text = "📊 群組訂單統整\n"
+                    reply_text += "=" * 30 + "\n"
+                    for detail in order_details:
+                        reply_text += f"👤 {detail['user_name']}\n"
+                        reply_text += f"   {detail['items']}\n"
+                        reply_text += f"   小計: ${detail['subtotal']}\n"
+                    reply_text += "=" * 30 + "\n"
+                    reply_text += f"💰 群組總計: ${total_amount}"
+                    
+                    print(f"📊 [統整] 群組 {group_id} 訂單統計:")
+                    print(reply_text)
+            
             else:
-                reply_text = f"我收到指令了：{real_command}\n(提示：若要開團，請長按圖片回覆 @機器人 開團)"
+                reply_text = f"我收到指令了：{real_command}\n(提示：支援指令有「開團」、「統整」)"
                 
             line_bot_api.reply_message_with_http_info(
                 ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
