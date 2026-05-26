@@ -410,7 +410,7 @@
         <div class="content">
             <div id="loading" class="loading">
                 <div class="spinner"></div>
-                <p>加載菜單中...</p>
+                <p>辨識菜單中...</p>
             </div>
             <div id="menuContent" style="display: none;">
                 <div class="menu-section">
@@ -448,8 +448,11 @@
         let cart = {};
         let menuDataGlobal = [];
         let userIdGlobal = '';
+        let userNameGlobal = '';  // LINE 用戶名
         let groupIdGlobal = '';
         let sessionIdGlobal = '';
+        let hasSubmittedOrder = false;  // 是否已送出訂單
+        let currentOrder = null;  // 當前訂單
         
         function addToCart(itemName, itemPrice) {
             if (cart[itemName]) {
@@ -469,7 +472,6 @@
         }
         
         function updateQuantity(itemName, delta) {
-            // 如果購物車沒有該項，先取得價格加入
             if (!cart[itemName]) {
                 const itemPrice = menuDataGlobal.find(item => {
                     const name = item.item_name || item.name || item.品項名稱;
@@ -483,7 +485,6 @@
                     };
                 }
             } else {
-                // 已經在購物車，更新數量
                 cart[itemName].quantity += delta;
                 if (cart[itemName].quantity <= 0) {
                     delete cart[itemName];
@@ -498,7 +499,6 @@
             const cartSummaryDiv = document.getElementById('cartSummaryDiv');
             const cartBadge = document.getElementById('cartBadge');
             
-            // 更新菜單上的數字顯示
             const qtyElements = document.querySelectorAll('.quantity-display');
             qtyElements.forEach(element => {
                 const itemName = element.getAttribute('data-item-name');
@@ -535,10 +535,68 @@
                 emptyCartMsg.style.display = 'none';
                 cartSummaryDiv.style.display = 'block';
                 document.getElementById('cartTotal').textContent = '$' + total;
-                // 更新購物車徽章
                 cartBadge.textContent = itemCount;
                 cartBadge.style.display = 'flex';
             }
+        }
+        
+        // 顯示訂單明細
+        function showOrderDetails(order) {
+            hasSubmittedOrder = true;
+            currentOrder = order;
+            
+            const modal = document.getElementById('cartModal');
+            const cartItemsList = document.getElementById('cartItemsList');
+            const emptyCartMsg = document.getElementById('emptyCartMsg');
+            const cartSummaryDiv = document.getElementById('cartSummaryDiv');
+            const submitBtn = document.getElementById('submitOrderBtn');
+            
+            // 清除購物車顯示
+            cartItemsList.innerHTML = '';
+            
+            // 顯示訂單明細
+            order.items.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'cart-item';
+                li.innerHTML = `
+                    <div class="cart-item-info">
+                        <div class="cart-item-name">${item.item}</div>
+                        <div class="cart-item-qty">$${item.price} × ${item.quantity}</div>
+                    </div>
+                    <div class="cart-item-price">$${item.subtotal}</div>
+                `;
+                cartItemsList.appendChild(li);
+            });
+            
+            emptyCartMsg.style.display = 'none';
+            cartSummaryDiv.style.display = 'block';
+            document.getElementById('cartTotal').textContent = '$' + order.total;
+            
+            // 改為「修改訂單」按鈕
+            submitBtn.textContent = '✏️ 修改訂單';
+            submitBtn.onclick = startEditOrder;
+        }
+        
+        // 開始編輯訂單
+        function startEditOrder() {
+            const submitBtn = document.getElementById('submitOrderBtn');
+            
+            // 加載購物車為原訂單內容
+            cart = {};
+            currentOrder.items.forEach(item => {
+                cart[item.item] = {
+                    price: item.price,
+                    quantity: item.quantity
+                };
+            });
+            
+            updateCartDisplay();
+            
+            // 改為「更新訂單」按鈕
+            submitBtn.textContent = '📤 更新訂單';
+            submitBtn.onclick = submitOrder;
+            
+            alert('已加載訂單明細，您可以修改後重新送出');
         }
         
         function openCart() {
@@ -566,15 +624,28 @@
                     body: JSON.stringify({
                         group_id: groupIdGlobal,
                         user_id: userIdGlobal,
+                        user_name: userNameGlobal,
                         order_items: cart
                     })
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
-                    alert(`✅ 訂單已送出！\n你的小計: $${data.user_total}\n群組總計: $${data.group_total}\n已點餐人數: ${data.user_count}`);
-                    cart = {};
-                    updateCartDisplay();
+                    alert(`✅ 訂單已${hasSubmittedOrder ? '更新' : '送出'}！\n你的小計: $${data.user_total}\n群組總計: $${data.group_total}\n已點餐人數: ${data.user_count}`);
+                    
+                    // 保存訂單
+                    currentOrder = {
+                        items: Object.entries(cart).map(([name, item]) => ({
+                            item: name,
+                            price: item.price,
+                            quantity: item.quantity,
+                            subtotal: item.price * item.quantity
+                        })),
+                        total: Object.entries(cart).reduce((sum, [, item]) => sum + (item.price * item.quantity), 0)
+                    };
+                    
+                    showOrderDetails(currentOrder);
+                    closeCart();
                 } else {
                     const errorData = await response.json();
                     alert('❌ 送出訂單失敗: ' + (errorData.error || '未知錯誤'));
@@ -584,7 +655,22 @@
                 alert('❌ 送出訂單失敗: ' + error.message);
             } finally {
                 submitBtn.disabled = false;
-                submitBtn.textContent = '📤 送出訂單';
+                submitBtn.textContent = hasSubmittedOrder ? '✏️ 修改訂單' : '📤 送出訂單';
+            }
+        }
+        
+        // 檢查用戶是否已有訂單
+        async function checkExistingOrder() {
+            try {
+                const response = await fetch(`/api/order/${groupIdGlobal}/${userIdGlobal}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === 'found') {
+                        showOrderDetails(data.order);
+                    }
+                }
+            } catch (error) {
+                console.error('檢查訂單錯誤:', error);
             }
         }
         
@@ -646,6 +732,10 @@
 
                 document.getElementById('menuContent').style.display = 'block';
                 document.getElementById('submitOrderBtn').onclick = submitOrder;
+                
+                // 檢查是否已有訂單
+                checkExistingOrder();
+                
                 console.log('[SUCCESS] 菜單成功顯示，共 ' + items.length + ' 項');
 
             } catch (error) {
@@ -659,17 +749,13 @@
         async function initLiff() {
             try {
                 console.log('[0] 獲取配置信息...');
-                // 從後端獲取 LIFF ID
                 const configResponse = await fetch('/api/config');
                 const config = await configResponse.json();
                 const liffId = config.liffId;
                 console.log('[0b] 獲得 LIFF ID:', liffId);
                 
                 console.log('[1] 檢查 LIFF SDK...');
-                console.log('[DEBUG] window.liff =', typeof window.liff);
-                console.log('[DEBUG] liff =', typeof liff);
                 
-                // 嘗試不同的方式訪問 liff
                 let liffObj = null;
                 if (typeof window.liff !== 'undefined') {
                     liffObj = window.liff;
@@ -683,9 +769,7 @@
                 }
 
                 console.log('[2] 初始化 LIFF...');
-                console.log('[DEBUG] LIFF ID:', liffId);
                 
-                // 使用 .then/.catch 方式捕獲詳細錯誤
                 await liffObj.init({ liffId: liffId })
                     .then(() => {
                         console.log('[2b] LIFF 初始化成功');
@@ -706,7 +790,27 @@
                 console.log('[6] 獲得用户信息:', profile);
                 
                 userIdGlobal = profile.userId;
-                document.getElementById('userName').textContent = profile.displayName;
+                
+                // 設置用戶名：優先使用 displayName，如果為空則向後端查詢
+                let displayName = profile.displayName;
+                if (!displayName || displayName.trim() === '') {
+                    // 從後端查詢 LINE 用戶的真實名稱
+                    try {
+                        const profileResponse = await fetch(`/api/user-profile/${profile.userId}`);
+                        if (profileResponse.ok) {
+                            const lineProfile = await profileResponse.json();
+                            displayName = lineProfile.displayName || profile.userId;
+                            console.log('[6b] 從後端取得名稱:', displayName);
+                        } else {
+                            displayName = profile.userId;
+                        }
+                    } catch (err) {
+                        console.error('[6c] 查詢用戶名稱失敗:', err);
+                        displayName = profile.userId;
+                    }
+                }
+                userNameGlobal = displayName;  // 保存用戶名到全局變量
+                document.getElementById('userName').textContent = displayName;
                 document.getElementById('userAvatar').src = profile.pictureUrl;
 
                 console.log('[7] 獲取 session ID 和 group ID...');
@@ -715,18 +819,12 @@
                 const groupId = urlParams.get('group');
                 sessionIdGlobal = sessionId;
                 groupIdGlobal = groupId;
-                console.log('[8] Session ID:', sessionId);
-                console.log('[8b] Group ID:', groupId);
-                console.log('[8c] User ID:', userIdGlobal);
-                console.log('[8d] 完整 URL:', window.location.href);
-                console.log('[8e] URL params:', Array.from(urlParams.entries()));
                 
                 if (sessionId) {
                     console.log('[9] 開始辨識菜單...');
                     try {
-                        // 輪詢等待辨識完成
                         let retries = 0;
-                        const maxRetries = 120; // 最多等待 2 分鐘 (120 * 1秒)
+                        const maxRetries = 120;
                         
                         while (retries < maxRetries) {
                             const response = await fetch('/api/recognize', {
@@ -745,13 +843,11 @@
                                 }
                             }
                             
-                            // 每 1 秒重試一次
                             console.log(`[9.${retries}] 等待辨識... (${retries}s)`);
                             await new Promise(resolve => setTimeout(resolve, 1000));
                             retries++;
                         }
                         
-                        // 超時
                         console.error('[ERROR] 菜單辨識超時');
                         displayMenu(null);
                     } catch (error) {
@@ -765,8 +861,6 @@
 
             } catch (error) {
                 console.error('❌ LIFF 初始化失敗:', error);
-                
-                // 顯示 alert 讓用户知道錯誤
                 alert("抓到錯誤了：" + error.message);
                 
                 document.getElementById('loading').style.display = 'none';
@@ -781,21 +875,17 @@
             }
         }
 
-        // 直接嘗試初始化
         console.log('[START] 開始初始化...');
         
-        // 購物車 Modal 事件監聽器
         document.getElementById('cartIconBtn').addEventListener('click', openCart);
         document.getElementById('cartCloseBtn').addEventListener('click', closeCart);
         
-        // 點擊 modal 外面關閉
         document.getElementById('cartModal').addEventListener('click', (event) => {
             if (event.target.id === 'cartModal') {
                 closeCart();
             }
         });
         
-        // 購物車項目移除按鈕事件委託
         document.getElementById('cartItemsList').addEventListener('click', (event) => {
             if (event.target.classList.contains('cart-item-remove')) {
                 const itemName = event.target.getAttribute('data-item-name');
@@ -803,7 +893,6 @@
             }
         });
         
-        // 菜單項目數量按鈕事件委託
         document.addEventListener('click', (event) => {
             if (event.target.classList.contains('quantity-btn') && event.target.getAttribute('data-item-name')) {
                 const itemName = event.target.getAttribute('data-item-name');
@@ -812,7 +901,6 @@
             }
         });
         
-        // 等待頁面加載完成
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 console.log('[DOMContentLoaded] 開始 initLiff()');
@@ -823,5 +911,6 @@
             initLiff();
         }
     </script>
+       
 </body>
 </html>
