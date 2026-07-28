@@ -51,11 +51,11 @@ def extract_menu(image_input):
         print(f"❌ 圖片讀取失敗: {e}")
         import traceback
         print(traceback.format_exc())
-        return {"menu_items": []}
+        return {"shop_name": "", "menu_items": []}
 
     # 設定模型與 Prompt
     model = "gemini-3-flash-preview"
-    prompt = "請檢視這張餐廳菜單的圖片，幫我辨識出所有的『品項名稱』與對應的『價格』。如果圖片中找不到菜單資訊，請回傳空的 menu_items 陣列。"
+    prompt = "請檢視這張餐廳菜單的圖片，幫我辨識出店家名稱，以及所有的『品項名稱』與對應的『價格』。請以 JSON 物件輸出，包含 shop_name 與 menu_items 兩個欄位。若無法辨識店家名稱，shop_name 請填空字串。若圖片中找不到菜單資訊，請回傳空的 menu_items 陣列。"
 
     # 設定結構化輸出與參數
     generate_content_config = types.GenerateContentConfig(
@@ -63,8 +63,12 @@ def extract_menu(image_input):
         response_mime_type="application/json",
         response_schema=genai.types.Schema(
             type=genai.types.Type.OBJECT,
-            required=["menu_items"],
+            required=["shop_name", "menu_items"],
             properties={
+                "shop_name": genai.types.Schema(
+                    type=genai.types.Type.STRING,
+                    description="菜單上的店家名稱，若無法辨識則為空字串",
+                ),
                 "menu_items": genai.types.Schema(
                     type=genai.types.Type.ARRAY,
                     description="菜單上的所有品項列表",
@@ -117,7 +121,7 @@ def extract_menu(image_input):
         if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
             print(f"❌ 無法找到有效的 JSON 結構")
             print(f"原始回應: {response_text[:200]}")
-            return {"menu_items": []}
+            return {"shop_name": "", "menu_items": []}
         
         json_str = response_text[start_idx:end_idx+1]
         print(f"📋 提取的 JSON (前 200 字): {json_str[:200]}")
@@ -132,6 +136,9 @@ def extract_menu(image_input):
                 print(f"   {idx}. {item.get('item_name', '?')} - ${item.get('price', '?')}")
             if menu_count > 3:
                 print(f"   ... 還有 {menu_count - 3} 項")
+
+        result_dict['shop_name'] = str(result_dict.get('shop_name', '')).strip()
+        result_dict['menu_items'] = result_dict.get('menu_items', [])
         
         return result_dict
 
@@ -141,7 +148,7 @@ def extract_menu(image_input):
         print(f"❌ AI 辨識或解析發生錯誤: {error_msg}")
         print(f"📍 完整錯誤堆疊:")
         print(traceback.format_exc())
-        return {"menu_items": []}
+        return {"shop_name": "", "menu_items": []}
 
 
 # ==========================================

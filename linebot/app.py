@@ -162,6 +162,7 @@ def submit_order():
         group_id = data.get('group_id')
         user_id = data.get('user_id')
         user_name = data.get('user_name', 'Unknown')  # 獲取用戶名
+        shop_name = data.get('shop_name', '')
         order_items = data.get('order_items', {})
         
         if not group_id or not user_id:
@@ -186,6 +187,7 @@ def submit_order():
         # 存儲到 Firestore（覆蓋舊訂單）
         db.collection('groups').document(group_id).collection('orders').document(user_id).set({
             'user_name': user_name,  # 保存用戶名
+            'shop_name': shop_name,
             'items': order_details,
             'total': total,
             'timestamp': firestore.SERVER_TIMESTAMP
@@ -358,6 +360,7 @@ def handle_text_message(event):
                         for user_id, user_order in group_orders.items():
                             user_total = user_order['total']
                             total_amount += user_total
+                            shop_name = user_order.get('shop_name', '')
                             
                             # 優先使用 Firestore 保存的用戶名，其次嘗試 LINE Bot API
                             user_name = user_order.get('user_name', '')
@@ -375,6 +378,7 @@ def handle_text_message(event):
                             
                             order_details.append({
                                 'user_name': user_name,
+                                'shop_name': shop_name,
                                 'items': items_str,
                                 'subtotal': user_total
                             })
@@ -383,6 +387,8 @@ def handle_text_message(event):
                         reply_text = "📊 群組訂單統整\n"
                         reply_text += "=" * 30 + "\n"
                         for detail in order_details:
+                            if detail['shop_name']:
+                                reply_text += f"🏪 店家: {detail['shop_name']}\n"
                             reply_text += f"👤 {detail['user_name']}\n"
                             reply_text += f"   {detail['items']}\n"
                             reply_text += f"   小計: ${detail['subtotal']}\n"

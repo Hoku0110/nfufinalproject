@@ -415,6 +415,7 @@
             <div id="menuContent" style="display: none;">
                 <div class="menu-section">
                     <div class="menu-title">📋 菜單</div>
+                    <div id="shopNameDisplay" style="margin-bottom: 12px; font-size: 16px; font-weight: 600; color: #444;"></div>
                     <ul class="menu-list" id="menuList">
                     </ul>
                 </div>
@@ -451,6 +452,7 @@
         let userNameGlobal = '';  // LINE 用戶名
         let groupIdGlobal = '';
         let sessionIdGlobal = '';
+        let shopNameGlobal = '';
         let hasSubmittedOrder = false;  // 是否已送出訂單
         let currentOrder = null;  // 當前訂單
         
@@ -550,6 +552,7 @@
             const emptyCartMsg = document.getElementById('emptyCartMsg');
             const cartSummaryDiv = document.getElementById('cartSummaryDiv');
             const submitBtn = document.getElementById('submitOrderBtn');
+            document.getElementById('shopNameDisplay').textContent = order.shop_name ? `店家：${order.shop_name}` : '';
             
             // 清除購物車顯示
             cartItemsList.innerHTML = '';
@@ -625,6 +628,7 @@
                         group_id: groupIdGlobal,
                         user_id: userIdGlobal,
                         user_name: userNameGlobal,
+                        shop_name: shopNameGlobal,
                         order_items: cart
                     })
                 });
@@ -635,6 +639,7 @@
                     
                     // 保存訂單
                     currentOrder = {
+                        shop_name: shopNameGlobal,
                         items: Object.entries(cart).map(([name, item]) => ({
                             item: name,
                             price: item.price,
@@ -690,6 +695,11 @@
                 if (typeof menuData === 'string') {
                     items = JSON.parse(menuData);
                 }
+
+                const shopName = items?.shop_name || items?.store_name || items?.店家名稱 || '';
+                shopNameGlobal = shopName;
+                const shopNameDisplay = document.getElementById('shopNameDisplay');
+                shopNameDisplay.textContent = shopName ? `店家：${shopName}` : '';
 
                 if (!Array.isArray(items)) {
                     items = items.menu_items || items.items || items.menu || [];
