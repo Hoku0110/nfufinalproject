@@ -9,7 +9,7 @@ from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi, MessagingApiBlob, 
-    ReplyMessageRequest, TextMessage, FlexMessage, FlexContainer
+    ReplyMessageRequest, PushMessageRequest, TextMessage, FlexMessage, FlexContainer
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from PIL import Image
@@ -88,6 +88,104 @@ def get_user_profile(user_id):
         print(f"❌ 取得用戶名稱失敗: {e}")
         return {'error': str(e)}, 400
 
+# API端點：查詢個人可使用的店家清單
+@app.route("/api/user-shops/<user_id>", methods=['GET'])
+def get_user_shops(user_id):
+    if 'db' not in globals() or db is None:
+        print("⚠️ Firebase 未初始化，無法查詢個人店家")
+        return {'status': 'success', 'shops': []}, 200
+    try:
+        print(f"🔍 [API] 正在查詢用戶 {user_id} 的個人店家庫...")
+        shops_ref = db.collection('users').document(user_id).collection('shops').stream()
+        shops_list = []
+        for doc in shops_ref:
+            data = doc.to_dict()
+            shop_name = data.get('shop_name', doc.id)
+            menu = data.get('menu', {})
+            if isinstance(menu, dict):
+                items = menu.get('menu_items') or menu.get('items') or menu.get('menu') or []
+            elif isinstance(menu, list):
+                items = menu
+            else:
+                items = []
+            shops_list.append({
+                'shop_name': shop_name,
+                'item_count': len(items)
+            })
+        print(f"✅ [API] 用戶 {user_id} 找到 {len(shops_list)} 個店家")
+        return {'status': 'success', 'shops': shops_list}, 200
+    except Exception as e:
+        print(f"❌ 查詢個人店家失敗: {e}")
+        return {'error': str(e)}, 500
+
+# API端點：刪除特定店家
+@app.route("/api/user-shop/<user_id>/<shop_name>", methods=['DELETE'])
+def delete_user_shop(user_id, shop_name):
+    if 'db' not in globals() or db is None:
+        return {'error': 'Firebase未初始化'}, 500
+    try:
+        db.collection('users').document(user_id).collection('shops').document(shop_name).delete()
+        print(f"🗑️ [API] 已成功刪除用戶 {user_id} 的店家【{shop_name}】")
+        return {'status': 'success', 'message': f'店家【{shop_name}】已成功刪除'}, 200
+    except Exception as e:
+        print(f"❌ 刪除店家失敗: {e}")
+        return {'error': str(e)}, 500
+
+# API端點：取得特定店家的菜單內容
+@app.route("/api/user-shop-menu/<user_id>/<shop_name>", methods=['GET'])
+def get_user_shop_menu(user_id, shop_name):
+    if 'db' not in globals() or db is None:
+        return {'error': 'Firebase未初始化'}, 500
+    try:
+        shop_doc = db.collection('users').document(user_id).collection('shops').document(shop_name).get()
+        if not shop_doc.exists:
+            return {'error': '店家不存在'}, 404
+        shop_data = shop_doc.to_dict()
+        return {'status': 'success', 'shop_name': shop_name, 'menu': shop_data.get('menu', {})}, 200
+    except Exception as e:
+        print(f"❌ 取得特定店家菜單失敗: {e}")
+        return {'error': str(e)}, 500
+
+# API端點：更新/儲存特定店家的菜單內容 (支援店家名稱變更)
+@app.route("/api/user-shop-menu", methods=['POST'])
+def save_user_shop_menu():
+    if 'db' not in globals() or db is None:
+        return {'error': 'Firebase未初始化'}, 500
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        old_shop_name = data.get('old_shop_name') or data.get('shop_name')
+        new_shop_name = data.get('new_shop_name') or data.get('shop_name')
+        menu_items = data.get('menu_items', [])
+        
+        if not user_id or not new_shop_name:
+            return {'error': 'user_id 與 new_shop_name 為必填欄位'}, 400
+        
+        # 若有更改店家名稱，刪除原本名稱的舊文件
+        if old_shop_name and old_shop_name != new_shop_name:
+            try:
+                db.collection('users').document(user_id).collection('shops').document(old_shop_name).delete()
+                print(f"🔄 [API] 店家改名：已刪除舊店家檔【{old_shop_name}】")
+            except Exception as e:
+                print(f"⚠️ 刪除舊店家檔失敗: {e}")
+
+        menu_data = {
+            'shop_name': new_shop_name,
+            'menu_items': menu_items
+        }
+        
+        db.collection('users').document(user_id).collection('shops').document(new_shop_name).set({
+            'shop_name': new_shop_name,
+            'menu': menu_data,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        }, merge=True)
+        
+        print(f"✅ [API] 已成功儲存用戶 {user_id} 的店家【{new_shop_name}】菜單 (共 {len(menu_items)} 項)")
+        return {'status': 'success', 'shop_name': new_shop_name, 'item_count': len(menu_items)}, 200
+    except Exception as e:
+        print(f"❌ 儲存店家菜單失敗: {e}")
+        return {'error': str(e)}, 500
+
 # API端點：存儲菜單數據
 @app.route("/api/menu", methods=['POST'])
 def store_menu():
@@ -100,26 +198,56 @@ def store_menu():
         return {'status': 'success', 'session_id': session_id}
     return {'status': 'error'}, 400
 
-# API端點：獲取菜單數據
+# API端點：獲取菜單數據 (支援從 Firebase 讀取永久保存的 Session)
 @app.route("/api/menu/<session_id>")
 def get_menu(session_id):
-    if session_id in menu_sessions:
-        return {'menu': menu_sessions[session_id]}
+    session_data = menu_sessions.get(session_id)
+    if not session_data and 'db' in globals() and db:
+        try:
+            doc = db.collection('sessions').document(session_id).get()
+            if doc.exists:
+                session_data = doc.to_dict()
+                menu_sessions[session_id] = session_data  # 快取至記憶體
+        except Exception as e:
+            print(f"⚠️ 讀取 Firebase session 失敗: {e}")
+            
+    if session_data:
+        is_closed = session_data.get('is_closed', False) if isinstance(session_data, dict) else False
+        initiator_id = session_data.get('initiator_id', '') if isinstance(session_data, dict) else ''
+        menu_content = session_data.get('menu_data') if isinstance(session_data, dict) and 'menu_data' in session_data else session_data
+        return {'menu': menu_content, 'is_closed': is_closed, 'initiator_id': initiator_id}
+
     return {'error': 'not found'}, 404
 
-# API端點：辨識菜單（前端呼叫）
+# API端點：辨識菜單（前端呼叫，支援雙重快取與 Firebase 永久儲存）
 @app.route("/api/recognize", methods=['POST'])
 def recognize_menu():
     session_id = request.json.get('session_id')
     
-    if session_id not in menu_sessions:
+    session_data = menu_sessions.get(session_id)
+    if not session_data and 'db' in globals() and db:
+        try:
+            doc = db.collection('sessions').document(session_id).get()
+            if doc.exists:
+                session_data = doc.to_dict()
+                menu_sessions[session_id] = session_data
+        except Exception as e:
+            print(f"⚠️ 從 Firebase 讀取 session 失敗: {e}")
+
+    if not session_data:
         return {'error': 'session not found'}, 404
     
-    session_data = menu_sessions[session_id]
-    
+    is_closed = session_data.get('is_closed', False) if isinstance(session_data, dict) else False
+    initiator_id = session_data.get('initiator_id', '') if isinstance(session_data, dict) else ''
+
     # 如果已經辨識完成，直接返回
     if isinstance(session_data, dict) and session_data.get('status') == 'completed':
-        return {'status': 'completed', 'menu': session_data['menu_data']}
+        return {
+            'status': 'completed',
+            'menu': session_data.get('menu_data'),
+            'is_closed': is_closed,
+            'initiator_id': initiator_id
+        }
     
     # 如果還在等待辨識
     if isinstance(session_data, dict) and session_data.get('status') == 'pending':
@@ -127,41 +255,173 @@ def recognize_menu():
             print(f"🤖 [API] 開始辨識 session {session_id}")
             menu_data = extract_menu(session_data['image_data'])
             
-            # 存回辨識結果
-            menu_sessions[session_id] = {
+            # 存回辨識結果至記憶體與 Firebase
+            session_result = {
                 'status': 'completed',
-                'menu_data': menu_data
+                'menu_data': menu_data,
+                'is_closed': is_closed,
+                'initiator_id': initiator_id
             }
+            menu_sessions[session_id] = session_result
             
-            return {'status': 'completed', 'menu': menu_data}
+            if 'db' in globals() and db:
+                try:
+                    db.collection('sessions').document(session_id).set(session_result, merge=True)
+                    print(f"☁️ [Session] 已更新辨識結果至 Firebase session {session_id}")
+                except Exception as se:
+                    print(f"⚠️ 更新 Firebase session 失敗: {se}")
+
+            return {
+                'status': 'completed',
+                'menu': menu_data,
+                'is_closed': is_closed,
+                'initiator_id': initiator_id
+            }
         except Exception as e:
             print(f"❌ [API] 辨識失敗: {e}")
             return {'error': str(e), 'status': 'error'}, 500
     
     return {'error': 'invalid session data'}, 400
 
-# API端點：查詢用戶已有訂單
+# API端點：宣告結單 (前端手動發起結單)
+@app.route("/api/close-session", methods=['POST'])
+def close_session():
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        group_id = data.get('group_id')
+        user_id = data.get('user_id')
+        
+        if not session_id and not group_id:
+            return {'error': 'session_id or group_id is required'}, 400
+
+        if session_id and session_id in menu_sessions:
+            if isinstance(menu_sessions[session_id], dict):
+                menu_sessions[session_id]['is_closed'] = True
+        
+        if 'db' in globals() and db:
+            if session_id:
+                db.collection('sessions').document(session_id).set({'is_closed': True}, merge=True)
+            if group_id:
+                db.collection('groups').document(group_id).set({'is_closed': True}, merge=True)
+                if user_id:
+                    db.collection('groups').document(group_id).collection('initiators').document(user_id).set({'is_closed': True}, merge=True)
+        
+        print(f"🔒 [結單 API] Session {session_id} (群組 {group_id}) 已宣告結單！")
+        return {'status': 'success', 'message': '已成功結單'}, 200
+    except Exception as e:
+        print(f"❌ 結單失敗: {e}")
+        return {'error': str(e)}, 500
+
+# API端點：查詢 Session 狀態 (輕量化 Ajax 輪詢)
+@app.route("/api/session-status/<session_id>")
+def get_session_status(session_id):
+    session_data = menu_sessions.get(session_id)
+    if not session_data and 'db' in globals() and db:
+        try:
+            doc = db.collection('sessions').document(session_id).get()
+            if doc.exists:
+                session_data = doc.to_dict()
+                menu_sessions[session_id] = session_data
+        except Exception as e:
+            print(f"⚠️ 輪詢 Session 失敗: {e}")
+            
+    if session_data and isinstance(session_data, dict):
+        return {'is_closed': session_data.get('is_closed', False)}, 200
+        
+    return {'is_closed': False}, 200
+
+# API端點：查詢個人歷史訂單紀錄
+@app.route("/api/order-history/<user_id>", methods=['GET'])
+def get_order_history(user_id):
+    try:
+        if 'db' not in globals() or not db:
+            return {'history': []}, 200
+        docs = (
+            db.collection('users').document(user_id)
+            .collection('order_history')
+            .order_by('completed_at', direction=firestore.Query.DESCENDING)
+            .limit(30)
+            .stream()
+        )
+        history = []
+        for doc in docs:
+            d = doc.to_dict()
+            d['doc_id'] = doc.id  # 回傳文件 ID 供前端刪除用
+            ts = d.get('completed_at')
+            if ts and hasattr(ts, 'isoformat'):
+                d['completed_at'] = ts.isoformat()
+            history.append(d)
+        return {'history': history}, 200
+    except Exception as e:
+        print(f"❌ 查詢歷史訂單失敗: {e}")
+        return {'error': str(e)}, 500
+
+# API端點：刪除單筆歷史訂單
+@app.route("/api/order-history/<user_id>/<doc_id>", methods=['DELETE'])
+def delete_order_history(user_id, doc_id):
+    try:
+        if 'db' not in globals() or not db:
+            return {'error': 'DB not available'}, 500
+        db.collection('users').document(user_id).collection('order_history').document(doc_id).delete()
+        print(f"🗑️ 已刪除使用者 {user_id} 的歷史訂單 {doc_id}")
+        return {'status': 'deleted'}, 200
+    except Exception as e:
+        print(f"❌ 刪除歷史訂單失敗: {e}")
+        return {'error': str(e)}, 500
+
+# API端點：確認某 session 是否已完成歸檔
+@app.route("/api/session-completed/<user_id>/<session_id>", methods=['GET'])
+def check_session_completed(user_id, session_id):
+    try:
+        if 'db' not in globals() or not db:
+            return {'completed': False}, 200
+        docs = list(
+            db.collection('users').document(user_id)
+            .collection('order_history')
+            .where('session_id', '==', session_id)
+            .limit(1)
+            .stream()
+        )
+        return {'completed': len(docs) > 0}, 200
+    except Exception as e:
+        print(f"❌ 確認完成狀態失敗: {e}")
+        return {'completed': False}, 500
+
+# API端點：查詢用戶已有訂單 (支援 session 專屬查詢)
 @app.route("/api/order/<group_id>/<user_id>", methods=['GET'])
 def get_user_order(group_id, user_id):
     try:
-        order_doc = db.collection('groups').document(group_id).collection('orders').document(user_id).get()
+        session_id = request.args.get('session_id')
         
-        if order_doc.exists:
-            return {'status': 'found', 'order': order_doc.to_dict()}, 200
-        else:
+        # 1. 若有 session_id，只查當前 session，絕不 fallback 到舊團購
+        if session_id and 'db' in globals() and db:
+            order_doc = db.collection('sessions').document(session_id).collection('orders').document(user_id).get()
+            if order_doc.exists:
+                return {'status': 'found', 'order': order_doc.to_dict()}, 200
+            # 有 session_id 但查無訂單 → 新的一次，直接回傳 not_found
             return {'status': 'not_found'}, 404
+
+        # 2. 無 session_id 才從群組層級查詢（舊版相容）
+        if 'db' in globals() and db:
+            order_doc = db.collection('groups').document(group_id).collection('orders').document(user_id).get()
+            if order_doc.exists:
+                return {'status': 'found', 'order': order_doc.to_dict()}, 200
+        
+        return {'status': 'not_found'}, 404
     except Exception as e:
         print(f"❌ 查詢訂單錯誤: {e}")
         return {'error': str(e)}, 500
 
-# API端點：提交訂單（允許修改）
+# API端點：提交訂單（允許修改，發起人獨立隔離）
 @app.route("/api/order", methods=['POST'])
 def submit_order():
     try:
         data = request.json
+        session_id = data.get('session_id')
         group_id = data.get('group_id')
         user_id = data.get('user_id')
-        user_name = data.get('user_name', 'Unknown')  # 獲取用戶名
+        user_name = data.get('user_name', 'Unknown')
         shop_name = data.get('shop_name', '')
         order_items = data.get('order_items', {})
         
@@ -171,6 +431,32 @@ def submit_order():
         if not order_items:
             return {'error': 'order_items is empty'}, 400
         
+        # 尋找該 Session 對應的團購發起人 initiator_id 並且檢查結單狀態
+        initiator_id = None
+        if session_id:
+            session_data = menu_sessions.get(session_id)
+            if not session_data and 'db' in globals() and db:
+                try:
+                    s_doc = db.collection('sessions').document(session_id).get()
+                    if s_doc.exists:
+                        session_data = s_doc.to_dict()
+                except Exception as se:
+                    print(f"⚠️ 讀取 session 失敗: {se}")
+            
+            if session_data:
+                initiator_id = session_data.get('initiator_id')
+                if session_data.get('is_closed'):
+                    return {'error': '已結單無法點餐'}, 400
+
+        # 檢查群組級別結單狀態
+        if group_id and 'db' in globals() and db:
+            try:
+                g_doc = db.collection('groups').document(group_id).get()
+                if g_doc.exists and g_doc.to_dict().get('is_closed'):
+                    return {'error': '已結單無法點餐'}, 400
+            except Exception as ge:
+                print(f"⚠️ 檢查群組狀態失敗: {ge}")
+
         # 計算使用者的訂單總額
         total = 0
         order_details = []
@@ -184,24 +470,48 @@ def submit_order():
                 'subtotal': subtotal
             })
         
-        # 存儲到 Firestore（覆蓋舊訂單）
-        db.collection('groups').document(group_id).collection('orders').document(user_id).set({
-            'user_name': user_name,  # 保存用戶名
+        order_payload = {
+            'user_name': user_name,
             'shop_name': shop_name,
             'items': order_details,
             'total': total,
+            'session_id': session_id,
             'timestamp': firestore.SERVER_TIMESTAMP
-        })
+        }
+
+        # 1. 若有特定 initiator_id，寫入該發起人的專屬點餐資料匣
+        if initiator_id and 'db' in globals() and db:
+            try:
+                db.collection('groups').document(group_id).collection('initiators').document(initiator_id).collection('orders').document(user_id).set(order_payload)
+                print(f"☁️ [訂單] 已將成員 {user_name} 的訂單寫入發起人 {initiator_id} 的專屬資料匣")
+            except Exception as ie:
+                print(f"⚠️ 寫入發起人 orders 失敗: {ie}")
+
+        # 2. 若有 session_id，寫入 sessions/{session_id}/orders/{user_id}
+        if session_id and 'db' in globals() and db:
+            try:
+                db.collection('sessions').document(session_id).collection('orders').document(user_id).set(order_payload)
+            except Exception as se:
+                print(f"⚠️ 寫入 session orders 失敗: {se}")
         
-        # 計算群組統計
-        orders_snapshot = db.collection('groups').document(group_id).collection('orders').stream()
-        orders_list = [order.to_dict() for order in orders_snapshot]
-        group_total = sum(order['total'] for order in orders_list)
-        user_count = len(orders_list)
-        group_item_count = sum(len(order['items']) for order in orders_list)
-        
-        print(f"✅ [訂單] 群組 {group_id} - 使用者 {user_id}: ${total}")
-        print(f"   群組總計: ${group_total} (已有 {user_count} 人點餐)")
+        # 3. 備份寫入 groups/{group_id}/orders/{user_id}
+        if 'db' in globals() and db:
+            db.collection('groups').document(group_id).collection('orders').document(user_id).set(order_payload)
+
+        # 計算統計人數與金額
+        user_count = 1
+        group_total = total
+        if session_id and 'db' in globals() and db:
+            try:
+                orders_snapshot = db.collection('sessions').document(session_id).collection('orders').stream()
+                orders_list = [o.to_dict() for o in orders_snapshot]
+                if orders_list:
+                    group_total = sum(o['total'] for o in orders_list)
+                    user_count = len(orders_list)
+            except Exception:
+                pass
+
+        print(f"✅ [訂單] 群組 {group_id} - 成員 {user_name}: ${total}")
         
         return {
             'status': 'success',
@@ -209,9 +519,8 @@ def submit_order():
             'group_total': group_total,
             'user_count': user_count
         }, 200
-        
     except Exception as e:
-        print(f"❌ [訂單] 提交訂單錯誤: {e}")
+        print(f"❌ 提交訂單失敗: {e}")
         return {'error': str(e)}, 500
 
 @app.route("/callback", methods=['POST'])
@@ -240,7 +549,218 @@ def handle_text_message(event):
             line_bot_blob_api = MessagingApiBlob(api_client)
             quoted_id = getattr(event.message, 'quoted_message_id', None)
 
-            if real_command == "開團":
+            if real_command.startswith("上傳"):
+                shop_name = real_command.replace("上傳", "", 1).strip()
+                if not shop_name:
+                    reply_text = "❌ 請輸入店家名稱！\n格式：「@機器人 上傳 (店家名稱)」"
+                elif not quoted_id:
+                    reply_text = f"請先上傳一張菜單照片，然後「長按該菜單照片選擇回覆」，再輸入「@機器人 上傳 {shop_name}」！"
+                else:
+                    try:
+                        user_id = event.source.user_id
+                        try:
+                            profile = line_bot_api.get_profile(user_id)
+                            user_name = profile.display_name
+                        except Exception:
+                            user_name = "使用者"
+
+                        message_content = line_bot_blob_api.get_message_content(quoted_id)
+                        
+                        # 先發送即時提示訊息告知已收到上傳
+                        to_target = getattr(event.source, 'group_id', None) or user_id
+                        try:
+                            line_bot_api.push_message(
+                                PushMessageRequest(
+                                    to=to_target,
+                                    messages=[TextMessage(text=f"⏳ 收到【{shop_name}】菜單照片！\n🤖 Gemini AI 正在辨識中，請稍候...")]
+                                )
+                            )
+                        except Exception as pe:
+                            print(f"⚠️ 發送即時提示訊息失敗: {pe}")
+
+                        print(f"🤖 [上傳] 正在透過 Gemini AI 辨識【{shop_name}】菜單...")
+                        
+                        # 呼叫 Gemini 辨識菜單
+                        raw_menu_data = extract_menu(message_content)
+                        
+                        # 正確相容與提取餐點品項列表
+                        if isinstance(raw_menu_data, dict):
+                            raw_menu_data['shop_name'] = shop_name
+                            items_list = raw_menu_data.get('menu_items') or raw_menu_data.get('items') or raw_menu_data.get('menu') or []
+                            menu_data = raw_menu_data
+                        elif isinstance(raw_menu_data, list):
+                            items_list = raw_menu_data
+                            menu_data = {'shop_name': shop_name, 'menu_items': items_list}
+                        else:
+                            items_list = []
+                            menu_data = {'shop_name': shop_name, 'menu_items': []}
+
+                        item_count = len(items_list)
+
+                        # 存入 Firebase 個人使用者資料庫: users/{user_id}/shops/{shop_name}
+                        user_ref = db.collection('users').document(user_id)
+                        user_ref.set({
+                            'user_name': user_name,
+                            'updated_at': firestore.SERVER_TIMESTAMP
+                        }, merge=True)
+                        
+                        user_ref.collection('shops').document(shop_name).set({
+                            'shop_name': shop_name,
+                            'menu': menu_data,
+                            'created_at': firestore.SERVER_TIMESTAMP
+                        })
+
+                        if item_count > 0:
+                            reply_text = f"✅ 成功為 {user_name} 建立專屬店家【{shop_name}】！\n已由 Gemini 辨識並儲存 {item_count} 項餐點資料。\n\n💡 隨時輸入「@機器人 團購 {shop_name}」即可發起團購點餐！"
+                        else:
+                            reply_text = f"⚠️ 已為 {user_name} 建立店家【{shop_name}】，但圖片未能成功辨識出餐點項目 (0 項)。\n請確認圖片清晰度後重新長按圖片並輸入：「@機器人 上傳 {shop_name}」進行覆蓋。"
+
+                        print(f"✅ [上傳成功] 用戶 {user_id} ({user_name}) 上傳了店家 {shop_name} (共 {item_count} 項)")
+                    except Exception as e:
+                        print(f"❌ 上傳菜單處理失敗: {e}")
+                        reply_text = f"❌ 上傳【{shop_name}】菜單失敗：{str(e)}"
+
+            elif real_command.startswith("團購"):
+                shop_name = real_command.replace("團購", "", 1).strip()
+                if not shop_name:
+                    reply_text = "❌ 請輸入店家名稱！\n格式：「@機器人 團購 (店家名稱)」"
+                else:
+                    user_id = event.source.user_id
+                    group_id = getattr(event.source, 'group_id', None) or user_id
+                    
+                    try:
+                        profile = line_bot_api.get_profile(user_id)
+                        user_name = profile.display_name
+                    except Exception:
+                        user_name = "使用者"
+
+                    # 從 Firebase 查詢發起人自己的個人資料庫 users/{user_id}/shops/{shop_name}
+                    shop_doc = db.collection('users').document(user_id).collection('shops').document(shop_name).get()
+                    
+                    if not shop_doc.exists:
+                        reply_text = (
+                            f"⛔ 無法發起團購！\n"
+                            f"您的個人資料庫中尚未建立【{shop_name}】的菜單。\n\n"
+                            f"💡 提示：請先長按菜單照片選擇回覆，並輸入：\n"
+                            f"「@機器人 上傳 {shop_name}」即可建立您專屬的店家菜單！"
+                        )
+                    else:
+                        shop_data = shop_doc.to_dict()
+                        menu_data = shop_data.get('menu', [])
+                        
+                        # 建立 Session (狀態設為 completed，雙重寫入記憶體與 Firebase 雲端資料庫)
+                        session_id = str(uuid.uuid4())
+                        print(f"💾 [團購] 發起店家 {shop_name} 團購 session {session_id}")
+                        session_payload = {
+                            'status': 'completed',
+                            'is_closed': False,
+                            'menu_data': menu_data,
+                            'shop_name': shop_name,
+                            'initiator_id': user_id,
+                            'initiator_name': user_name
+                        }
+                        menu_sessions[session_id] = session_payload
+                        
+                        if 'db' in globals() and db:
+                            try:
+                                db.collection('sessions').document(session_id).set(session_payload)
+                                print(f"☁️ [Session] 已將團購 session {session_id} 寫入 Firebase")
+                            except Exception as se:
+                                print(f"⚠️ 寫入 Firebase session 失敗: {se}")
+
+                        # 清除該發起人原本的舊訂單明細與紀錄當前團購發起資訊
+                        if getattr(event.source, 'group_id', None):
+                            try:
+                                # 1. 紀錄發起人專屬文件 (initiators/user_id)
+                                init_doc_ref = db.collection('groups').document(group_id).collection('initiators').document(user_id)
+                                init_doc_ref.set({
+                                    'initiator_id': user_id,
+                                    'initiator_name': user_name,
+                                    'shop_name': shop_name,
+                                    'session_id': session_id,
+                                    'updated_at': firestore.SERVER_TIMESTAMP
+                                })
+
+                                # 2. 更新群組最新活動標示 (groups/group_id)，並重置結單狀態
+                                db.collection('groups').document(group_id).set({
+                                    'initiator_id': user_id,
+                                    'initiator_name': user_name,
+                                    'shop_name': shop_name,
+                                    'session_id': session_id,
+                                    'is_closed': False,
+                                    'updated_at': firestore.SERVER_TIMESTAMP
+                                }, merge=True)
+
+                                # 3. 清除該發起人舊有明細
+                                orders_ref = init_doc_ref.collection('orders')
+                                docs = orders_ref.stream()
+                                for doc in docs:
+                                    doc.reference.delete()
+                                print(f"🗑️ [團購] 發起人 {user_name} 已發起新團購【{shop_name}】，發起人舊明細已清空！")
+                            except Exception as e:
+                                print(f"⚠️ 清除與記錄發起人失敗: {e}")
+
+                        flex_dict = {
+                            "type": "bubble",
+                            "body": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "contents": [
+                                    {
+                                        "type": "box",
+                                        "layout": "horizontal",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": f"🍔【{shop_name}】團購點餐",
+                                                "weight": "bold",
+                                                "size": "lg",
+                                                "flex": 1
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": f"發起人: {user_name}",
+                                                "size": "xs",
+                                                "color": "#aaaaaa",
+                                                "align": "end",
+                                                "gravity": "bottom"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            "footer": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "contents": [
+                                    {
+                                        "type": "button",
+                                        "action": {
+                                            "type": "uri",
+                                            "label": "前往點餐",
+                                            "uri": f"https://liff.line.me/{LIFF_ID}?session={session_id}&group={group_id}"
+                                        },
+                                        "style": "primary",
+                                        "color": "#06C755"
+                                    }
+                                ]
+                            }
+                        }
+
+                        flex_message = FlexMessage(
+                            alt_text=f"【{shop_name}】團購開跑囉！請點擊卡片前往點餐",
+                            contents=FlexContainer.from_dict(flex_dict)
+                        )
+
+                        line_bot_api.reply_message_with_http_info(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token, 
+                                messages=[flex_message]
+                            )
+                        )
+                        return
+
+            elif real_command == "開團":
                 if quoted_id:
                     try:
                         user_id = event.source.user_id
@@ -250,7 +770,7 @@ def handle_text_message(event):
                             profile = line_bot_api.get_profile(user_id)
                             user_name = profile.display_name
                         except Exception:
-                            user_name = "群組成員"
+                            user_name = "發起人"
 
                         message_content = line_bot_blob_api.get_message_content(quoted_id)
                         img = Image.open(io.BytesIO(message_content))
@@ -260,18 +780,49 @@ def handle_text_message(event):
                         print(f"💾 [APP] 存儲圖片到 session {session_id}")
                         menu_sessions[session_id] = {
                             'image_data': message_content,
-                            'status': 'pending'
+                            'status': 'pending',
+                            'is_closed': False,
+                            'initiator_id': user_id,
+                            'initiator_name': user_name
                         }
 
-                        # 清除該群組的舊訂單
+                        # 清除該發起人原本的舊訂單明細與紀錄當前團購發起資訊
                         try:
-                            orders_ref = db.collection('groups').document(group_id).collection('orders')
+                            # 1. 紀錄發起人專屬文件 (initiators/user_id)
+                            init_doc_ref = db.collection('groups').document(group_id).collection('initiators').document(user_id)
+                            init_doc_ref.set({
+                                'initiator_id': user_id,
+                                'initiator_name': user_name,
+                                'session_id': session_id,
+                                'updated_at': firestore.SERVER_TIMESTAMP
+                            })
+
+                            # 2. 更新群組最新活動標示 (groups/group_id)，並重置結單狀態
+                            db.collection('groups').document(group_id).set({
+                                'initiator_id': user_id,
+                                'initiator_name': user_name,
+                                'session_id': session_id,
+                                'is_closed': False,
+                                'updated_at': firestore.SERVER_TIMESTAMP
+                            }, merge=True)
+
+                            # 同步將新 session 寫入 Firestore，確保 is_closed 從 False 開始
+                            db.collection('sessions').document(session_id).set({
+                                'initiator_id': user_id,
+                                'initiator_name': user_name,
+                                'group_id': group_id,
+                                'is_closed': False,
+                                'created_at': firestore.SERVER_TIMESTAMP
+                            })
+
+                            # 3. 清除該發起人舊有明細
+                            orders_ref = init_doc_ref.collection('orders')
                             docs = orders_ref.stream()
                             for doc in docs:
                                 doc.reference.delete()
-                            print(f"🗑️ [開團] 已清除群組 {group_id} 的舊訂單")
+                            print(f"🗑️ [開團] 發起人 {user_name} 已發起新團購，發起人舊明細已清空！")
                         except Exception as e:
-                            print(f"⚠️ 清除舊訂單失敗: {e}")
+                            print(f"⚠️ 清除與記錄發起人失敗: {e}")
 
                         flex_dict = {
                             "type": "bubble",
@@ -342,25 +893,68 @@ def handle_text_message(event):
             
             elif real_command == "統整":
                 group_id = event.source.group_id
+                caller_user_id = event.source.user_id
                 
                 if not group_id:
                     reply_text = "❌ 此指令只能在群組中使用"
                 else:
-                    # 從 Firestore 取得該群組的所有訂單
-                    orders_snapshot = db.collection('groups').document(group_id).collection('orders').stream()
-                    group_orders = {order.id: order.to_dict() for order in orders_snapshot}
-                    
-                    if not group_orders:
-                        reply_text = "📋 目前還沒有人點餐，群組訂單為空"
+                    target_initiator_id = None
+                    target_initiator_name = "發起人"
+                    target_shop_name = ""
+                    target_session_id = None
+
+                    # 1. 檢查發送者 (caller) 本身是否有發起中的專屬團購
+                    caller_init_doc = db.collection('groups').document(group_id).collection('initiators').document(caller_user_id).get()
+                    if caller_init_doc.exists:
+                        init_info = caller_init_doc.to_dict()
+                        target_initiator_id = caller_user_id
+                        target_initiator_name = init_info.get('initiator_name', '發起人')
+                        target_shop_name = init_info.get('shop_name', '')
+                        target_session_id = init_info.get('session_id')
                     else:
-                        # 統整該群組的所有訂單
+                        # 2. 若發送者非發起人，嘗試取得群組內最新一筆活動團購資訊
+                        group_doc = db.collection('groups').document(group_id).get()
+                        if group_doc.exists:
+                            group_info = group_doc.to_dict()
+                            target_initiator_id = group_info.get('initiator_id')
+                            target_initiator_name = group_info.get('initiator_name', '發起人')
+                            target_shop_name = group_info.get('shop_name', '')
+                            target_session_id = group_info.get('session_id')
+
+                    group_orders = {}
+
+                    # 3. 讀取發起人的點餐紀錄 (優先從 session/initiator 獨立資料庫)
+                    if target_session_id and 'db' in globals() and db:
+                        try:
+                            s_orders = db.collection('sessions').document(target_session_id).collection('orders').stream()
+                            group_orders = {order.id: order.to_dict() for order in s_orders}
+                        except Exception as se:
+                            print(f"⚠️ 讀取 session 專屬訂單失敗: {se}")
+
+                    if not group_orders and target_initiator_id and 'db' in globals() and db:
+                        try:
+                            i_orders = db.collection('groups').document(group_id).collection('initiators').document(target_initiator_id).collection('orders').stream()
+                            group_orders = {order.id: order.to_dict() for order in i_orders}
+                        except Exception as ie:
+                            print(f"⚠️ 讀取 initiator 專屬訂單失敗: {ie}")
+
+                    if not group_orders:
+                        if target_initiator_id:
+                            reply_text = f"📋 目前【{target_initiator_name}】發起的團購尚未有人點餐，訂單明細為空"
+                        else:
+                            reply_text = "📋 目前尚無任何進行中的團購。請先輸入「@機器人 團購 (店家名稱)」發起團購！"
+                    else:
+                        # 統整該發起人團購的所有訂單
                         total_amount = 0
                         order_details = []
-                        
+                        global_item_summary = {}  # 全群組餐點品項總計 (品項 -> 數量)
+
                         for user_id, user_order in group_orders.items():
                             user_total = user_order['total']
                             total_amount += user_total
                             shop_name = user_order.get('shop_name', '')
+                            if shop_name and not target_shop_name:
+                                target_shop_name = shop_name
                             
                             # 優先使用 Firestore 保存的用戶名，其次嘗試 LINE Bot API
                             user_name = user_order.get('user_name', '')
@@ -371,35 +965,268 @@ def handle_text_message(event):
                                 except:
                                     user_name = f"使用者 {user_id[-4:]}"  # 只顯示後 4 位
                             
-                            items_str = "、".join([
-                                f"{item['item']}({item['quantity']}份)" 
-                                for item in user_order['items']
-                            ])
-                            
+                            # 統計個人與全群組品項
+                            user_items = user_order.get('items', [])
+                            items_str_list = []
+                            for item in user_items:
+                                item_name = item['item']
+                                qty = item['quantity']
+                                items_str_list.append(f"{item_name}({qty}份)")
+                                
+                                # 累加到全群組統計
+                                global_item_summary[item_name] = global_item_summary.get(item_name, 0) + qty
+
                             order_details.append({
                                 'user_name': user_name,
-                                'shop_name': shop_name,
-                                'items': items_str,
+                                'items': "、".join(items_str_list),
                                 'subtotal': user_total
                             })
                         
-                        # 格式化回覆訊息
-                        reply_text = "📊 群組訂單統整\n"
-                        reply_text += "=" * 30 + "\n"
-                        for detail in order_details:
-                            if detail['shop_name']:
-                                reply_text += f"🏪 店家: {detail['shop_name']}\n"
-                            reply_text += f"👤 {detail['user_name']}\n"
-                            reply_text += f"   {detail['items']}\n"
-                            reply_text += f"   小計: ${detail['subtotal']}\n"
-                        reply_text += "=" * 30 + "\n"
-                        reply_text += f"💰 群組總計: ${total_amount}"
+                        # 格式化回覆訊息 (明確標示該次團購的發起人)
+                        reply_text = "📊 團購訂單統整\n"
+                        reply_text += f"👑 發起人：{target_initiator_name}\n"
+                        if target_shop_name:
+                            reply_text += f"🏪 店家：{target_shop_name}\n"
+                        reply_text += "=" * 28 + "\n"
                         
-                        print(f"📊 [統整] 群組 {group_id} 訂單統計:")
+                        # 1. 個人明細
+                        reply_text += "👤 【個人點餐明細】\n"
+                        for detail in order_details:
+                            reply_text += f"• {detail['user_name']}：{detail['items']} (${detail['subtotal']})\n"
+                        
+                        reply_text += "-" * 28 + "\n"
+                        
+                        # 2. 全群組品項加總
+                        total_items_count = sum(global_item_summary.values())
+                        reply_text += "🍱 【全群組餐點總計】\n"
+                        for item_name, qty in global_item_summary.items():
+                            reply_text += f"• {item_name} × {qty} 份\n"
+                        
+                        reply_text += "=" * 28 + "\n"
+                        reply_text += f"🔢 總餐點數：{total_items_count} 份\n"
+                        reply_text += f"💰 總金額：${total_amount}"
+                        
+                        print(f"📊 [統整] 群組 {group_id} (發起人: {target_initiator_name}) 訂單統計:")
                         print(reply_text)
             
+            elif real_command == "結單":
+                group_id = event.source.group_id
+                caller_user_id = event.source.user_id
+                
+                if not group_id:
+                    reply_text = "❌ 此指令只能在群組中使用"
+                else:
+                    target_initiator_id = None
+                    target_initiator_name = "發起人"
+                    target_shop_name = ""
+                    target_session_id = None
+
+                    # 1. 檢查發送者 (caller) 本身是否有發起中的專屬團購
+                    caller_init_doc = db.collection('groups').document(group_id).collection('initiators').document(caller_user_id).get()
+                    if caller_init_doc.exists:
+                        init_info = caller_init_doc.to_dict()
+                        target_initiator_id = caller_user_id
+                        target_initiator_name = init_info.get('initiator_name', '發起人')
+                        target_shop_name = init_info.get('shop_name', '')
+                        target_session_id = init_info.get('session_id')
+                    else:
+                        # 2. 若發送者非發起人，嘗試取得群組內最新一筆活動團購資訊
+                        group_doc = db.collection('groups').document(group_id).get()
+                        if group_doc.exists:
+                            group_info = group_doc.to_dict()
+                            target_initiator_id = group_info.get('initiator_id')
+                            target_initiator_name = group_info.get('initiator_name', '發起人')
+                            target_shop_name = group_info.get('shop_name', '')
+                            target_session_id = group_info.get('session_id')
+
+                    # 將 Session 及群組狀態更新為結單 (is_closed = True)
+                    if target_session_id:
+                        if target_session_id in menu_sessions and isinstance(menu_sessions[target_session_id], dict):
+                            menu_sessions[target_session_id]['is_closed'] = True
+                        if 'db' in globals() and db:
+                            try:
+                                db.collection('sessions').document(target_session_id).set({'is_closed': True}, merge=True)
+                            except Exception as se:
+                                print(f"⚠️ 更新 session 結單狀態失敗: {se}")
+
+                    if 'db' in globals() and db:
+                        try:
+                            db.collection('groups').document(group_id).set({'is_closed': True}, merge=True)
+                            if target_initiator_id:
+                                db.collection('groups').document(group_id).collection('initiators').document(target_initiator_id).set({'is_closed': True}, merge=True)
+                        except Exception as ge:
+                            print(f"⚠️ 更新 group 結單狀態失敗: {ge}")
+
+                    group_orders = {}
+
+                    # 3. 讀取訂單紀錄 (優先從 session 專屬資料庫)
+                    if target_session_id and 'db' in globals() and db:
+                        try:
+                            s_orders = db.collection('sessions').document(target_session_id).collection('orders').stream()
+                            group_orders = {order.id: order.to_dict() for order in s_orders}
+                        except Exception as se:
+                            print(f"⚠️ 讀取 session 專屬訂單失敗: {se}")
+
+                    if not group_orders and target_initiator_id and 'db' in globals() and db:
+                        try:
+                            i_orders = db.collection('groups').document(group_id).collection('initiators').document(target_initiator_id).collection('orders').stream()
+                            group_orders = {order.id: order.to_dict() for order in i_orders}
+                        except Exception as ie:
+                            print(f"⚠️ 讀取 initiator 專屬訂單失敗: {ie}")
+
+                    if not group_orders:
+                        reply_text = f"🔒 【{target_initiator_name}】發起的團購已宣告結單！\n目前尚無人點餐，點餐通道已關閉。"
+                    else:
+                        total_amount = 0
+                        order_details = []
+                        global_item_summary = {}
+
+                        for user_id, user_order in group_orders.items():
+                            user_total = user_order['total']
+                            total_amount += user_total
+                            shop_name = user_order.get('shop_name', '')
+                            if shop_name and not target_shop_name:
+                                target_shop_name = shop_name
+                            
+                            user_name = user_order.get('user_name', '')
+                            if not user_name or user_name == 'Unknown':
+                                try:
+                                    profile = line_bot_api.get_profile(user_id)
+                                    user_name = profile.display_name
+                                except:
+                                    user_name = f"使用者 {user_id[-4:]}"
+                            
+                            user_items = user_order.get('items', [])
+                            items_str_list = []
+                            for item in user_items:
+                                item_name = item['item']
+                                qty = item['quantity']
+                                items_str_list.append(f"{item_name}({qty}份)")
+                                global_item_summary[item_name] = global_item_summary.get(item_name, 0) + qty
+
+                            order_details.append({
+                                'user_name': user_name,
+                                'items': "、".join(items_str_list),
+                                'subtotal': user_total
+                            })
+                        
+                        reply_text = "🎉 本次團購已成功結單！\n"
+                        reply_text += "🔒 點餐通道已關閉，無法再修改或新增訂單\n"
+                        reply_text += f"👑 發起人：{target_initiator_name}\n"
+                        if target_shop_name:
+                            reply_text += f"🏪 店家：{target_shop_name}\n"
+                        reply_text += "=" * 28 + "\n"
+                        
+                        reply_text += "👤 【最終個人點餐明細】\n"
+                        for detail in order_details:
+                            reply_text += f"• {detail['user_name']}：{detail['items']} (${detail['subtotal']})\n"
+                        
+                        reply_text += "-" * 28 + "\n"
+                        
+                        total_items_count = sum(global_item_summary.values())
+                        reply_text += "🍱 【全群組餐點總計】\n"
+                        for item_name, qty in global_item_summary.items():
+                            reply_text += f"• {item_name} × {qty} 份\n"
+                        
+                        reply_text += "=" * 28 + "\n"
+                        reply_text += f"🔢 總餐點數：{total_items_count} 份\n"
+                        reply_text += f"💰 總金額：${total_amount}"
+                        
+                        print(f"🔒 [結單成功] 群組 {group_id} (發起人: {target_initiator_name}) 團購已結單。")
+            
+            elif real_command == "完成":
+                group_id = getattr(event.source, 'group_id', None)
+                caller_user_id = event.source.user_id
+
+                if not group_id:
+                    reply_text = "❌ 此指令只能在群組中使用"
+                else:
+                    # 1. 找到當前團購資訊
+                    target_initiator_id = None
+                    target_initiator_name = "發起人"
+                    target_shop_name = ""
+                    target_session_id = None
+
+                    caller_init_doc = db.collection('groups').document(group_id).collection('initiators').document(caller_user_id).get()
+                    if caller_init_doc.exists:
+                        init_info = caller_init_doc.to_dict()
+                        target_initiator_id = caller_user_id
+                        target_initiator_name = init_info.get('initiator_name', '發起人')
+                        target_shop_name = init_info.get('shop_name', '')
+                        target_session_id = init_info.get('session_id')
+                    else:
+                        group_doc = db.collection('groups').document(group_id).get()
+                        if group_doc.exists:
+                            group_info = group_doc.to_dict()
+                            target_initiator_id = group_info.get('initiator_id')
+                            target_initiator_name = group_info.get('initiator_name', '發起人')
+                            target_shop_name = group_info.get('shop_name', '')
+                            target_session_id = group_info.get('session_id')
+
+                    # 2. 讀取所有訂單
+                    group_orders = {}
+                    if target_session_id and 'db' in globals() and db:
+                        try:
+                            s_orders = db.collection('sessions').document(target_session_id).collection('orders').stream()
+                            group_orders = {o.id: o.to_dict() for o in s_orders}
+                        except Exception as se:
+                            print(f"⚠️ 讀取 session 訂單失敗: {se}")
+
+                    if not group_orders and target_initiator_id and 'db' in globals() and db:
+                        try:
+                            i_orders = db.collection('groups').document(group_id).collection('initiators').document(target_initiator_id).collection('orders').stream()
+                            group_orders = {o.id: o.to_dict() for o in i_orders}
+                        except Exception as ie:
+                            print(f"⚠️ 讀取 initiator 訂單失敗: {ie}")
+
+                    if not group_orders:
+                        reply_text = f"📋 目前【{target_initiator_name}】發起的團購尚未有人點餐，無法完成。"
+                    else:
+                        saved_count = 0
+                        total_amount = sum(o.get('total', 0) for o in group_orders.values())
+
+                        # 查詢群組名稱
+                        group_name = ''
+                        try:
+                            group_summary = line_bot_api.get_group_summary(group_id)
+                            group_name = group_summary.group_name or ''
+                            print(f"📍 群組名稱：{group_name}")
+                        except Exception as gne:
+                            print(f"⚠️ 無法取得群組名稱: {gne}")
+
+                        # 3. 逐一寫入每位成員的 order_history
+                        for uid, user_order in group_orders.items():
+                            history_record = {
+                                'group_id': group_id,
+                                'group_name': group_name,
+                                'initiator_id': target_initiator_id,
+                                'initiator_name': target_initiator_name,
+                                'shop_name': target_shop_name or user_order.get('shop_name', ''),
+                                'session_id': target_session_id,
+                                'items': user_order.get('items', []),
+                                'total': user_order.get('total', 0),
+                                'group_total': total_amount,
+                                'user_name': user_order.get('user_name', ''),
+                                'completed_at': firestore.SERVER_TIMESTAMP,
+                            }
+                            try:
+                                db.collection('users').document(uid).collection('order_history').add(history_record)
+                                saved_count += 1
+                                print(f"📦 [完成] 已寫入使用者 {uid} 的歷史訂單")
+                            except Exception as he:
+                                print(f"⚠️ 寫入使用者 {uid} 歷史訂單失敗: {he}")
+
+                        reply_text = f"✅ 本次團購已完成並歸檔！\n"
+                        reply_text += f"👑 發起人：{target_initiator_name}\n"
+                        if target_shop_name:
+                            reply_text += f"🏪 店家：{target_shop_name}\n"
+                        reply_text += f"👥 共 {saved_count} 位成員的訂單已存入歷史紀錄\n"
+                        reply_text += f"💰 本次團購總金額：${total_amount}\n"
+                        reply_text += "📱 成員可在點餐頁面查看個人歷史訂單明細！"
+                        print(f"✅ [完成] 群組 {group_id} 團購完成，共寫入 {saved_count} 筆歷史訂單。")
+
             else:
-                reply_text = f"我收到指令了：{real_command}\n(提示：支援指令有「開團」、「統整」)"
+                reply_text = f"我收到指令了：{real_command}\n(提示：支援指令有「上傳 (店家)」、「團購 (店家)」、「開團」、「統整」、「結單」、「完成」)"
                 
             line_bot_api.reply_message_with_http_info(
                 ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
