@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>好棒棒點餐</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         * {
             margin: 0;
@@ -110,6 +111,13 @@
         }
         .btn-save:hover {
             background: #2f855a;
+        }
+        .btn-back {
+            background: #718096;
+            color: white;
+        }
+        .btn-back:hover {
+            background: #4a5568;
         }
         .edit-item-row {
             display: flex;
@@ -485,6 +493,18 @@
             cursor: not-allowed;
             transform: none;
         }
+        /* 菜單下方送出列 */
+        .bottom-submit-bar {
+            margin-top: 16px;
+            padding: 0 4px 16px;
+            display: none; /* 預設隱藏，購物車有內容時才顯示 */
+        }
+        .bottom-submit-bar .submit-btn {
+            border-radius: 10px;
+            padding: 15px 20px;
+            font-size: 17px;
+            letter-spacing: 0.5px;
+        }
         .empty-cart-msg {
             text-align: center;
             color: #999;
@@ -807,6 +827,25 @@
             border-radius: 12px;
             letter-spacing: 0.3px;
         }
+        .btn-save-shop {
+            display: none; /* 預設隱藏，載入菜單後才顯示 */
+            align-items: center;
+            gap: 5px;
+            padding: 6px 14px;
+            background: linear-gradient(135deg, #38a169, #48bb78);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn-save-shop:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(56, 161, 105, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -850,12 +889,26 @@
                 <div class="menu-main-area">
                     <div id="menuContent" style="display: none;">
                         <div class="menu-section">
-                            <div class="menu-title">📋 菜單</div>
+                            <div class="menu-title" style="display:flex; align-items:center; justify-content:space-between;">
+                                <span>📋 菜單</span>
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <button class="btn-save-shop" id="saveShopBtn" onclick="saveCurrentShop()">
+                                        💾 儲存店家
+                                    </button>
+                                    <button class="btn-save-shop" id="backToOrderBtn" onclick="goHomeOrderingView()" style="display:none; background:linear-gradient(135deg,#667eea,#764ba2);">
+                                        🍔 回到點餐
+                                    </button>
+                                </div>
+                            </div>
                             <div id="closedStatusBanner" class="closed-banner" style="display: none;"></div>
                             <div id="myOrderSummaryCard" class="my-order-summary-card" style="display: none;"></div>
                             <div id="shopNameDisplay" style="margin-bottom: 12px; font-size: 16px; font-weight: 600; color: #444;"></div>
                             <ul class="menu-list" id="menuList">
                             </ul>
+                            <!-- 菜單下方送出訂單列 -->
+                            <div class="bottom-submit-bar" id="bottomSubmitBar">
+                                <button class="submit-btn" id="bottomSubmitBtn">📤 送出訂單</button>
+                            </div>
                         </div>
                     </div>
                     
@@ -889,8 +942,8 @@
                             <span class="cart-summary-label">總計：</span>
                             <span class="cart-summary-total" id="cartTotal">$0</span>
                         </div>
-                        <button class="submit-btn" id="submitOrderBtn">📤 送出訂單</button>
                     </div>
+                    <button class="submit-btn" id="submitOrderBtn" style="margin-top: 12px;">📤 送出訂單</button>
                 </div>
             </div>
         </div>
@@ -1116,11 +1169,27 @@
             if (submitBtn) {
                 submitBtn.onclick = submitOrder;
                 if (isSessionClosedGlobal) {
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = hasSubmittedOrder ? '🔒 已結單無法修改' : '🔒 已結單無法點餐';
+                    submitBtn.style.display = 'none'; // 結單後隱藏購物車送出鈕
                 } else {
+                    submitBtn.style.display = 'block';
                     submitBtn.disabled = false;
                     submitBtn.textContent = hasSubmittedOrder ? '📤 更新訂單' : '📤 送出訂單';
+                }
+            }
+
+            // 同步底部固定送出按鈕
+            const bottomBar = document.getElementById('bottomSubmitBar');
+            const bottomBtn = document.getElementById('bottomSubmitBtn');
+            if (bottomBtn && bottomBar) {
+                bottomBtn.onclick = submitOrder;
+                if (isSessionClosedGlobal) {
+                    // 結單後隱藏（訂單明細卡片會取代它）
+                    bottomBar.style.display = 'none';
+                } else {
+                    // 未結單時永遠顯示
+                    bottomBar.style.display = 'block';
+                    bottomBtn.disabled = false;
+                    bottomBtn.textContent = hasSubmittedOrder ? '📤 更新訂單' : '📤 送出訂單';
                 }
             }
         }
@@ -1167,15 +1236,21 @@
                 alert('🔒 本次團購已結單，無法送出或修改訂單！');
                 return;
             }
-            if (Object.keys(cart).length === 0) {
+
+            const isEmpty = Object.keys(cart).length === 0;
+
+            // 購物車空且沒有歷史訂單 → 不需送出
+            if (isEmpty && !hasSubmittedOrder) {
                 alert('購物車是空的，請選擇餐點');
                 return;
             }
-            
+
             const submitBtn = document.getElementById('submitOrderBtn');
-            submitBtn.disabled = true;
-            submitBtn.textContent = '📤 送出中...';
-            
+            const bottomBtn = document.getElementById('bottomSubmitBtn');
+            const loadingText = isEmpty ? '🗑️ 清除中...' : '📤 送出中...';
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = loadingText; }
+            if (bottomBtn) { bottomBtn.disabled = true; bottomBtn.textContent = loadingText; }
+
             try {
                 const response = await fetch('/api/order', {
                     method: 'POST',
@@ -1189,25 +1264,36 @@
                         order_items: cart
                     })
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
-                    alert(`✅ 訂單已${hasSubmittedOrder ? '更新' : '送出'}！\n你的小計: $${data.user_total}\n群組總計: $${data.group_total}\n已點餐人數: ${data.user_count}`);
-                    
-                    // 保存訂單
-                    currentOrder = {
-                        shop_name: shopNameGlobal,
-                        items: Object.entries(cart).map(([name, item]) => ({
-                            item: name,
-                            price: item.price,
-                            quantity: item.quantity,
-                            subtotal: item.price * item.quantity
-                        })),
-                        total: Object.entries(cart).reduce((sum, [, item]) => sum + (item.price * item.quantity), 0)
-                    };
-                    
-                    showOrderDetails(currentOrder);
-                    closeCart();
+
+                    if (data.status === 'cleared') {
+                        // 購物車為空 → 訂單已從資料庫刪除，重置 UI
+                        alert('✅ 您的訂單已清除');
+                        hasSubmittedOrder = false;
+                        currentOrder = null;
+                        cart = {};
+                        document.getElementById('shopNameDisplay').textContent = '';
+                        updateCartDisplay();
+                    } else {
+                        alert(`✅ 訂單已${hasSubmittedOrder ? '更新' : '送出'}！\n你的小計: $${data.user_total}\n群組總計: $${data.group_total}\n已點餐人數: ${data.user_count}`);
+
+                        // 保存訂單
+                        currentOrder = {
+                            shop_name: shopNameGlobal,
+                            items: Object.entries(cart).map(([name, item]) => ({
+                                item: name,
+                                price: item.price,
+                                quantity: item.quantity,
+                                subtotal: item.price * item.quantity
+                            })),
+                            total: Object.entries(cart).reduce((sum, [, item]) => sum + (item.price * item.quantity), 0)
+                        };
+
+                        showOrderDetails(currentOrder);
+                        closeCart();
+                    }
                 } else {
                     const errorData = await response.json();
                     alert('❌ 送出訂單失敗: ' + (errorData.error || '未知錯誤'));
@@ -1216,10 +1302,10 @@
                 console.error('送出訂單錯誤:', error);
                 alert('❌ 送出訂單失敗: ' + error.message);
             } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = hasSubmittedOrder ? '✏️ 修改訂單' : '📤 送出訂單';
+                updateCartDisplay(); // 重新同步兩個按鈕狀態
             }
         }
+
         
         // 點擊左上角「好棒棒點餐」標題回到點餐/首頁介面
         async function goHomeOrderingView() {
@@ -1407,40 +1493,81 @@
         let sessionPollTimer = null;
         let completedPollTimer = null;
 
-        // AJAX 輪詢檢查團購 Session 結單狀態，實現無需手動刷新頁面的實時自動更新
+        // AJAX 輪詢檢查團購 Session 結單狀態（持續偵測，支援結單 ↔ 取消結單雙向更新）
         function startSessionPolling() {
             if (!sessionIdGlobal) return;
             if (sessionPollTimer) clearInterval(sessionPollTimer);
 
             sessionPollTimer = setInterval(async () => {
-                if (isSessionClosedGlobal) {
-                    clearInterval(sessionPollTimer);
-                    return;
-                }
                 try {
                     const res = await fetch(`/api/session-status/${encodeURIComponent(sessionIdGlobal)}`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data.is_closed) {
-                            console.log('🔒 [AJAX] 偵測到已結單，無需重整，自動即時更新介面！');
-                            isSessionClosedGlobal = true;
-                            clearInterval(sessionPollTimer);
-                            checkExistingOrder(); // 重新拉取並渲染最新結單 UI 狀態
-                            startCompletedPolling(); // 結單後開始輪詢完成狀態
-                        }
+                    if (!res.ok) return;
+                    const data = await res.json();
+
+                    if (data.is_closed && !isSessionClosedGlobal) {
+                        // 狀態從「開放」→「結單」
+                        console.log('🔒 [AJAX] 偵測到已結單，自動更新介面！');
+                        isSessionClosedGlobal = true;
+                        checkExistingOrder();
+                        startCompletedPolling();
+
+                    } else if (!data.is_closed && isSessionClosedGlobal) {
+                        // 狀態從「結單」→「取消結單」
+                        console.log('🔓 [AJAX] 偵測到取消結單，自動恢復點餐模式！');
+                        isSessionClosedGlobal = false;
+                        clearInterval(completedPollTimer); // 停止完成輪詢
+                        resetToOrderingUI();
                     }
                 } catch (err) {
                     console.error('輪詢 Session 狀態失敗:', err);
                 }
-            }, 3000); // 每 3 秒 Ajax 動態自動檢測一次
+            }, 3000); // 每 3 秒持續偵測
         }
 
-        // AJAX 輪詢檢查團購完成狀態，結單後自動假測發起人是否發了 完成 指令
+        // 取消結單後將 UI 重置回可點餐狀態
+        function resetToOrderingUI() {
+            // 隱藏結單橫幅與訂單明細卡
+            const closedBanner = document.getElementById('closedStatusBanner');
+            const myOrderCard = document.getElementById('myOrderSummaryCard');
+            if (closedBanner) closedBanner.style.display = 'none';
+            if (myOrderCard) myOrderCard.style.display = 'none';
+
+            // 重新啟用所有點餐按鈕
+            document.querySelectorAll('.quantity-btn').forEach(btn => btn.disabled = false);
+
+            // 重新啟用送出訂單按鈕
+            const submitBtn = document.getElementById('submitOrderBtn');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '📤 送出訂單';
+                submitBtn.onclick = submitOrder;
+            }
+
+            // 顯示取消結單提示橫幅（短暫顯示後消失）
+            if (closedBanner) {
+                closedBanner.className = 'closed-banner';
+                closedBanner.style.background = 'linear-gradient(135deg, #38a169, #48bb78)';
+                closedBanner.style.color = 'white';
+                closedBanner.innerHTML = '🔓 結單已取消！您現在可以修改或新增訂單。';
+                closedBanner.style.display = 'block';
+                setTimeout(() => { closedBanner.style.display = 'none'; }, 5000);
+            }
+
+            // 重新檢查訂單（帶入之前已點的品項到購物車）
+            checkExistingOrder();
+        }
+
+        // AJAX 輪詢檢查團購完成狀態，結單後自動偵測發起人是否發了 完成 指令
         function startCompletedPolling() {
             if (!sessionIdGlobal || !userIdGlobal) return;
             if (completedPollTimer) clearInterval(completedPollTimer);
 
             completedPollTimer = setInterval(async () => {
+                // 若已取消結單，停止完成輪詢
+                if (!isSessionClosedGlobal) {
+                    clearInterval(completedPollTimer);
+                    return;
+                }
                 try {
                     const res = await fetch(`/api/session-completed/${userIdGlobal}/${encodeURIComponent(sessionIdGlobal)}`);
                     if (!res.ok) return;
@@ -1459,6 +1586,7 @@
             }, 4000); // 每 4 秒檢查一次
         }
         
+
         function displayMenu(menuData) {
             document.getElementById('loading').style.display = 'none';
             
@@ -1544,7 +1672,13 @@
 
                 document.getElementById('menuContent').style.display = 'block';
                 document.getElementById('submitOrderBtn').onclick = submitOrder;
-                
+
+                // 團購模式：顯示「儲存店家」、隱藏「回到點餐」
+                const saveBtn = document.getElementById('saveShopBtn');
+                const backBtn = document.getElementById('backToOrderBtn');
+                if (saveBtn) saveBtn.style.display = 'inline-flex';
+                if (backBtn) backBtn.style.display = 'none';
+
                 // 檢查是否已有訂單
                 checkExistingOrder();
                 
@@ -1554,6 +1688,80 @@
                 console.error('菜單解析失敗:', error);
                 document.getElementById('errorContent').style.display = 'block';
                 document.getElementById('errorContent').innerHTML = `<div class="error">菜單數據格式錯誤: ${error.message}</div>`;
+            }
+        }
+
+        // ===== 儲存當前菜單到我的店家 =====
+        async function saveCurrentShop() {
+            if (!userIdGlobal) {
+                Swal.fire({ icon: 'error', title: '錯誤', text: '無法取得用戶資訊，請重新整理頁面', confirmButtonColor: '#667eea' });
+                return;
+            }
+            if (!menuDataGlobal || menuDataGlobal.length === 0) {
+                Swal.fire({ icon: 'warning', title: '無菜單資料', text: '目前沒有可儲存的菜單', confirmButtonColor: '#667eea' });
+                return;
+            }
+
+            const defaultName = shopNameGlobal || '';
+
+            const { value: shopName, isConfirmed } = await Swal.fire({
+                title: '💾 儲存到我的店家',
+                html: `
+                    <p style="margin-bottom:12px; color:#555;">確定要將此菜單儲存到您的店家庫嗎？</p>
+                    <input id="swal-shop-name" class="swal2-input" placeholder="店家名稱" value="${defaultName}" style="font-size:15px;">
+                `,
+                confirmButtonText: '✅ 儲存',
+                cancelButtonText: '取消',
+                showCancelButton: true,
+                confirmButtonColor: '#38a169',
+                cancelButtonColor: '#aaa',
+                preConfirm: () => {
+                    const val = document.getElementById('swal-shop-name').value.trim();
+                    if (!val) {
+                        Swal.showValidationMessage('請輸入店家名稱');
+                        return false;
+                    }
+                    return val;
+                }
+            });
+
+            if (!isConfirmed || !shopName) return;
+
+            // 整理菜單格式
+            const menuItems = menuDataGlobal.map(item => ({
+                item_name: item.item_name || item.name || item.品項名稱 || '未知品項',
+                price: parseInt(item.price || item.價格 || item.價錢 || 0)
+            }));
+
+            try {
+                Swal.fire({ title: '儲存中...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                const res = await fetch('/api/user-shop-menu', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: userIdGlobal,
+                        shop_name: shopName,
+                        new_shop_name: shopName,
+                        menu_items: menuItems
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '✅ 儲存成功！',
+                        html: `<b>${shopName}</b> 已儲存到您的店家庫<br><small style="color:#666;">共 ${menuItems.length} 個品項</small>`,
+                        confirmButtonColor: '#38a169'
+                    });
+                    // 重新整理左側店家庫
+                    if (typeof loadUserShops === 'function') loadUserShops(userIdGlobal);
+                } else {
+                    Swal.fire({ icon: 'error', title: '儲存失敗', text: data.error || '未知錯誤', confirmButtonColor: '#667eea' });
+                }
+            } catch (err) {
+                Swal.fire({ icon: 'error', title: '網路錯誤', text: err.message, confirmButtonColor: '#667eea' });
             }
         }
 
@@ -1865,6 +2073,12 @@
                     addEditItemRow(itemName, itemPrice);
                 });
             }
+
+            // 編輯店家庫：隱藏「儲存店家」，改顯示「回到點餐」
+            const saveBtn = document.getElementById('saveShopBtn');
+            const backBtn = document.getElementById('backToOrderBtn');
+            if (saveBtn) saveBtn.style.display = 'none';
+            if (backBtn) backBtn.style.display = 'inline-flex';
 
             document.getElementById('menuContent').style.display = 'block';
         }
