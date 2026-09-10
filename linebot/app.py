@@ -89,6 +89,50 @@ def get_user_profile(user_id):
         print(f"❌ 取得用戶名稱失敗: {e}")
         return {'error': str(e)}, 400
 
+# API端點：取得用戶餘額
+@app.route("/api/user-balance/<user_id>", methods=['GET'])
+def get_user_balance(user_id):
+    if 'db' not in globals() or db is None:
+        return {'balance': 0}, 200
+    try:
+        doc = db.collection('users').document(user_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            return {'balance': data.get('balance', 0)}, 200
+        return {'balance': 0}, 200
+    except Exception as e:
+        print(f"❌ 取得用戶餘額失敗: {e}")
+        return {'balance': 0}, 500
+
+# API端點：儲值用戶餘額
+@app.route("/api/user-balance/topup", methods=['POST'])
+def topup_user_balance():
+    if 'db' not in globals() or db is None:
+        return {'error': 'Firebase未初始化'}, 500
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        amount = data.get('amount', 0)
+        
+        if not user_id or amount <= 0:
+            return {'error': '無效的參數'}, 400
+            
+        user_ref = db.collection('users').document(user_id)
+        
+        # 取得當前餘額並增加
+        doc = user_ref.get()
+        current_balance = 0
+        if doc.exists:
+            current_balance = doc.to_dict().get('balance', 0)
+            
+        new_balance = current_balance + amount
+        user_ref.set({'balance': new_balance}, merge=True)
+        
+        return {'status': 'success', 'new_balance': new_balance}, 200
+    except Exception as e:
+        print(f"❌ 儲值失敗: {e}")
+        return {'error': str(e)}, 500
+
 # API端點：查詢個人可使用的店家清單
 @app.route("/api/user-shops/<user_id>", methods=['GET'])
 def get_user_shops(user_id):
@@ -455,6 +499,50 @@ def submit_order():
             except Exception as ge:
                 print(f"⚠️ 檢查群組狀態失敗: {ge}")
 
+        # --- 處理餘額扣除 (先取得新舊訂單差額) ---
+        total = 0
+        order_details = []
+        for item_name, item_data in order_items.items():
+            subtotal = item_data['price'] * item_data['quantity']
+            total += subtotal
+            order_details.append({
+                'item': item_name,
+                'price': item_data['price'],
+                'quantity': item_data['quantity'],
+                'subtotal': subtotal
+            })
+            
+        previous_total = 0
+        current_balance = 0
+        new_balance = 0
+        if 'db' in globals() and db:
+            user_ref = db.collection('users').document(user_id)
+            user_doc = user_ref.get()
+            if user_doc.exists:
+                current_balance = user_doc.to_dict().get('balance', 0)
+                
+            if session_id:
+                try:
+                    old_doc = db.collection('sessions').document(session_id).collection('orders').document(user_id).get()
+                    if old_doc.exists:
+                        previous_total = old_doc.to_dict().get('total', 0)
+                except Exception as e:
+                    print(f"⚠️ 讀取舊訂單失敗: {e}")
+
+            diff = total - previous_total
+            
+            # 檢查餘額
+            if order_items and diff > 0 and current_balance < diff:
+                return {'error': '餘額不足，請先儲值'}, 400
+                
+            new_balance = current_balance - diff
+            try:
+                user_ref.set({'balance': new_balance}, merge=True)
+                print(f"💰 [餘額更新] 用戶 {user_name} 餘額從 {current_balance} 變更為 {new_balance}")
+            except Exception as e:
+                print(f"⚠️ 更新餘額失敗: {e}")
+                return {'error': '更新餘額失敗'}, 500
+
         if not order_items:
             # 購物車為空 → 刪除該使用者的既有訂單（三個集合都刪）
             if session_id and 'db' in globals() and db:
@@ -471,23 +559,10 @@ def submit_order():
                 try:
                     db.collection('groups').document(group_id).collection('orders').document(user_id).delete()
                 except Exception: pass
-            return {'status': 'cleared', 'message': '訂單已清除'}, 200
+            return {'status': 'cleared', 'message': '訂單已清除', 'new_balance': new_balance}, 200
 
 
 
-        # 計算使用者的訂單總額
-        total = 0
-        order_details = []
-        for item_name, item_data in order_items.items():
-            subtotal = item_data['price'] * item_data['quantity']
-            total += subtotal
-            order_details.append({
-                'item': item_name,
-                'price': item_data['price'],
-                'quantity': item_data['quantity'],
-                'subtotal': subtotal
-            })
-        
         order_payload = {
             'user_name': user_name,
             'shop_name': shop_name,
@@ -535,11 +610,88 @@ def submit_order():
             'status': 'success',
             'user_total': total,
             'group_total': group_total,
-            'user_count': user_count
+            'user_count': user_count,
+            'new_balance': new_balance
         }, 200
     except Exception as e:
         print(f"❌ 提交訂單失敗: {e}")
         return {'error': str(e)}, 500
+
+# API端點：聊天機器人 - 輸入品項名稱（可多個），回傳有此品項的店家
+@app.route("/api/chat", methods=['POST'])
+def chat_recommend():
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        raw_input = data.get('message', '').strip()
+
+        if not user_id:
+            return {'error': '請先登入'}, 400
+        if not raw_input:
+            return {'error': '請輸入品項名稱'}, 400
+
+        # 支援空白、全形空白、逗號、頓號分隔多個品項
+        import re
+        keywords = [k.strip() for k in re.split(r'[,，、\s　]+', raw_input) if k.strip()]
+
+        # 從 Firebase 讀取該用戶所有店家的菜單
+        shops_data = []
+        if 'db' in globals() and db:
+            try:
+                shops_ref = db.collection('users').document(user_id).collection('shops').stream()
+                for doc in shops_ref:
+                    shop = doc.to_dict()
+                    shop_name = shop.get('shop_name', doc.id)
+                    menu = shop.get('menu', {})
+                    if isinstance(menu, dict):
+                        items = menu.get('menu_items') or menu.get('items') or menu.get('menu') or []
+                    elif isinstance(menu, list):
+                        items = menu
+                    else:
+                        items = []
+                    if items:
+                        shops_data.append({
+                            'shop_name': shop_name,
+                            'items': items
+                        })
+            except Exception as e:
+                print(f"⚠️ [Chat] 讀取用戶店家失敗: {e}")
+
+        if not shops_data:
+            return {
+                'reply': '您的個人店家庫目前是空的！\n\n請先在 LINE 上傳菜單建立店家：\n「@機器人 上傳 店家名稱」',
+                'found': False
+            }, 200
+
+        # AND 邏輯：只列出同時擁有所有搜尋品項的店家
+        matched_shops = []
+        for shop in shops_data:
+            # 取出該店所有品項名稱
+            shop_item_names = set()
+            for item in shop['items']:
+                item_name = item.get('item_name') or item.get('name') or item.get('item') or ''
+                if item_name:
+                    shop_item_names.add(item_name)
+
+            # 確認每個關鍵字都在該店的品項裡
+            if all(kw in shop_item_names for kw in keywords):
+                matched_shops.append(shop['shop_name'])
+
+        print(f"🔍 [Chat] 用戶 {user_id} 查詢 {keywords}（AND），找到 {len(matched_shops)} 間店")
+
+        kw_str = '、'.join(f'「{k}」' for k in keywords)
+        if matched_shops:
+            shop_list = '\n'.join(f'🏪 {s}' for s in matched_shops)
+            reply = f'同時有賣 {kw_str} 的店家：\n\n{shop_list}'
+        else:
+            reply = f'您的店家庫中沒有同時賣 {kw_str} 的店家。\n\n（提示：請輸入完整品項名稱）'
+
+        return {'reply': reply, 'found': bool(matched_shops)}, 200
+
+    except Exception as e:
+        print(f"❌ [Chat API] 錯誤: {e}")
+        return {'error': str(e)}, 500
+
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -1066,27 +1218,15 @@ def handle_text_message(event):
                             target_shop_name = group_info.get('shop_name', '')
                             target_session_id = group_info.get('session_id')
 
-                    # 前置檢查：結單前必須先執行統整
-                    group_doc_check = db.collection('groups').document(group_id).get()
-                    has_summarized = False
-                    if group_doc_check.exists:
-                        has_summarized = group_doc_check.to_dict().get('has_summarized', False)
-
-                    if not has_summarized:
-                        reply_text = (
-                            "⚠️ 結單失敗！請先執行「統整」再結單。\n"
-                            "操作步驟：統整 → 結單 → 完成"
-                        )
-                    else:
-                        # 將 Session 及群組狀態更新為結單 (is_closed = True)
-                        if target_session_id:
-                            if target_session_id in menu_sessions and isinstance(menu_sessions[target_session_id], dict):
-                                menu_sessions[target_session_id]['is_closed'] = True
-                            if 'db' in globals() and db:
-                                try:
-                                    db.collection('sessions').document(target_session_id).set({'is_closed': True}, merge=True)
-                                except Exception as se:
-                                    print(f"⚠️ 更新 session 結單狀態失敗: {se}")
+                    # 將 Session 及群組狀態更新為結單 (is_closed = True)
+                    if target_session_id:
+                        if target_session_id in menu_sessions and isinstance(menu_sessions[target_session_id], dict):
+                            menu_sessions[target_session_id]['is_closed'] = True
+                        if 'db' in globals() and db:
+                            try:
+                                db.collection('sessions').document(target_session_id).set({'is_closed': True}, merge=True)
+                            except Exception as se:
+                                print(f"⚠️ 更新 session 結單狀態失敗: {se}")
 
                         if 'db' in globals() and db:
                             try:
@@ -1096,82 +1236,82 @@ def handle_text_message(event):
                             except Exception as ge:
                                 print(f"⚠️ 更新 group 結單狀態失敗: {ge}")
 
-                        group_orders = {}
+                    group_orders = {}
 
-                        # 3. 讀取訂單紀錄 (優先從 session 專屬資料庫)
-                        if target_session_id and 'db' in globals() and db:
-                            try:
-                                s_orders = db.collection('sessions').document(target_session_id).collection('orders').stream()
-                                group_orders = {order.id: order.to_dict() for order in s_orders}
-                            except Exception as se:
-                                print(f"⚠️ 讀取 session 專屬訂單失敗: {se}")
+                    # 3. 讀取訂單紀錄 (優先從 session 專屬資料庫)
+                    if target_session_id and 'db' in globals() and db:
+                        try:
+                            s_orders = db.collection('sessions').document(target_session_id).collection('orders').stream()
+                            group_orders = {order.id: order.to_dict() for order in s_orders}
+                        except Exception as se:
+                            print(f"⚠️ 讀取 session 專屬訂單失敗: {se}")
 
-                        if not group_orders and target_initiator_id and 'db' in globals() and db:
-                            try:
-                                i_orders = db.collection('groups').document(group_id).collection('initiators').document(target_initiator_id).collection('orders').stream()
-                                group_orders = {order.id: order.to_dict() for order in i_orders}
-                            except Exception as ie:
-                                print(f"⚠️ 讀取 initiator 專屬訂單失敗: {ie}")
+                    if not group_orders and target_initiator_id and 'db' in globals() and db:
+                        try:
+                            i_orders = db.collection('groups').document(group_id).collection('initiators').document(target_initiator_id).collection('orders').stream()
+                            group_orders = {order.id: order.to_dict() for order in i_orders}
+                        except Exception as ie:
+                            print(f"⚠️ 讀取 initiator 專屬訂單失敗: {ie}")
 
-                        if not group_orders:
-                            reply_text = f"🔒 【{target_initiator_name}】發起的團購已宣告結單！\n目前尚無人點餐，點餐通道已關閉。"
-                        else:
-                            total_amount = 0
-                            order_details = []
-                            global_item_summary = {}
+                    if not group_orders:
+                        reply_text = f"🔒 【{target_initiator_name}】發起的團購已宣告結單！\n目前尚無人點餐，點餐通道已關閉。"
+                    else:
+                        total_amount = 0
+                        order_details = []
+                        global_item_summary = {}
 
-                            for user_id, user_order in group_orders.items():
-                                user_total = user_order['total']
-                                total_amount += user_total
-                                shop_name = user_order.get('shop_name', '')
-                                if shop_name and not target_shop_name:
-                                    target_shop_name = shop_name
-                                
-                                user_name = user_order.get('user_name', '')
-                                if not user_name or user_name == 'Unknown':
-                                    try:
-                                        profile = line_bot_api.get_profile(user_id)
-                                        user_name = profile.display_name
-                                    except:
-                                        user_name = f"使用者 {user_id[-4:]}"
-                                
-                                user_items = user_order.get('items', [])
-                                items_str_list = []
-                                for item in user_items:
-                                    item_name = item['item']
-                                    qty = item['quantity']
-                                    items_str_list.append(f"{item_name}({qty}份)")
-                                    global_item_summary[item_name] = global_item_summary.get(item_name, 0) + qty
+                        for user_id, user_order in group_orders.items():
+                            user_total = user_order['total']
+                            total_amount += user_total
+                            shop_name = user_order.get('shop_name', '')
+                            if shop_name and not target_shop_name:
+                                target_shop_name = shop_name
+                            
+                            user_name = user_order.get('user_name', '')
+                            if not user_name or user_name == 'Unknown':
+                                try:
+                                    profile = line_bot_api.get_profile(user_id)
+                                    user_name = profile.display_name
+                                except:
+                                    user_name = f"使用者 {user_id[-4:]}"
+                            
+                            user_items = user_order.get('items', [])
+                            items_str_list = []
+                            for item in user_items:
+                                item_name = item['item']
+                                qty = item['quantity']
+                                items_str_list.append(f"{item_name}({qty}份)")
+                                global_item_summary[item_name] = global_item_summary.get(item_name, 0) + qty
 
-                                order_details.append({
-                                    'user_name': user_name,
-                                    'items': "、".join(items_str_list),
-                                    'subtotal': user_total
-                                })
-                            
-                            reply_text = "🎉 本次團購已成功結單！\n"
-                            reply_text += "🔒 點餐通道已關閉，無法再修改或新增訂單\n"
-                            reply_text += f"👑 發起人：{target_initiator_name}\n"
-                            if target_shop_name:
-                                reply_text += f"🏪 店家：{target_shop_name}\n"
-                            reply_text += "=" * 28 + "\n"
-                            
-                            reply_text += "👤 【最終個人點餐明細】\n"
-                            for detail in order_details:
-                                reply_text += f"• {detail['user_name']}：{detail['items']} (${detail['subtotal']})\n"
-                            
-                            reply_text += "-" * 28 + "\n"
-                            
-                            total_items_count = sum(global_item_summary.values())
-                            reply_text += "🍱 【全群組餐點總計】\n"
-                            for item_name, qty in global_item_summary.items():
-                                reply_text += f"• {item_name} × {qty} 份\n"
-                            
-                            reply_text += "=" * 28 + "\n"
-                            reply_text += f"🔢 總餐點數：{total_items_count} 份\n"
-                            reply_text += f"💰 總金額：${total_amount}"
-                            
-                            print(f"🔒 [結單成功] 群組 {group_id} (發起人: {target_initiator_name}) 團購已結單。")
+                            order_details.append({
+                                'user_name': user_name,
+                                'items': "、".join(items_str_list),
+                                'subtotal': user_total
+                            })
+                        
+                        reply_text = "🎉 本次團購已成功結單！\n"
+                        reply_text += "🔒 點餐通道已關閉，無法再修改或新增訂單\n"
+                        reply_text += f"👑 發起人：{target_initiator_name}\n"
+                        if target_shop_name:
+                            reply_text += f"🏪 店家：{target_shop_name}\n"
+                        reply_text += "=" * 28 + "\n"
+                        
+                        reply_text += "👤 【最終個人點餐明細】\n"
+                        for detail in order_details:
+                            reply_text += f"• {detail['user_name']}：{detail['items']} (${detail['subtotal']})\n"
+                        
+                        reply_text += "-" * 28 + "\n"
+                        
+                        total_items_count = sum(global_item_summary.values())
+                        reply_text += "🍱 【全群組餐點總計】\n"
+                        for item_name, qty in global_item_summary.items():
+                            reply_text += f"• {item_name} × {qty} 份\n"
+                        
+                        reply_text += "=" * 28 + "\n"
+                        reply_text += f"🔢 總餐點數：{total_items_count} 份\n"
+                        reply_text += f"💰 總金額：${total_amount}"
+                        
+                        print(f"🔒 [結單成功] 群組 {group_id} (發起人: {target_initiator_name}) 團購已結單。")
 
             
             elif real_command == "完成":
@@ -1190,7 +1330,7 @@ def handle_text_message(event):
                     if not is_already_closed:
                         reply_text = (
                             "⚠️ 完成失敗！請先執行「結單」再完成。\n"
-                            "操作步驟：統整 → 結單 → 完成"
+                            "操作步驟：結單 → 完成"
                         )
                     else:
                         # 1. 找到當前團購資訊
@@ -1337,7 +1477,7 @@ def handle_text_message(event):
                         if not is_currently_closed:
                             reply_text = (
                                 "⚠️ 取消結單失敗！目前尚未結單，不需要取消。\n"
-                                "操作步驟：統整 → 結單 → (取消結單) → 完成"
+                                "操作步驟：結單 → (取消結單) → 完成"
                             )
                         else:
                             # 前置檢查 2：完成後不能再取消結單（查 sessions/{id}.completed 標記）

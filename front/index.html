@@ -846,6 +846,319 @@
             transform: translateY(-1px);
             box-shadow: 0 3px 10px rgba(56, 161, 105, 0.4);
         }
+        
+        /* 儲值卡片 */
+        .swal2-topup-popup {
+            border-radius: 20px;
+        }
+        .topup-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s;
+        }
+        .topup-card:hover {
+            border-color: #667eea;
+            background-color: #f0f4ff;
+        }
+        .topup-card.selected {
+            border-color: #667eea;
+            background-color: #e4ebfb;
+        }
+        .topup-card.recommended {
+            border-color: #75b798;
+            background-color: #f8fffb;
+        }
+        .topup-card.recommended.selected {
+            border-color: #667eea;
+            background-color: #e4ebfb;
+        }
+        .topup-card .tag {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #e23e3e;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .pay-method {
+            padding: 8px 16px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            color: #555;
+            transition: all 0.2s;
+        }
+        .pay-method.active {
+            border-color: #333;
+            background: #333;
+            color: #fff;
+        }
+
+        /* ===== 聊天機器人浮動按鈕 ===== */
+        .chat-fab-btn {
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
+            z-index: 1200;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #ffffff;
+            color: #1e293b;
+            border: 2px solid #e2e8f0;
+            font-size: 26px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .chat-fab-btn:hover {
+            transform: scale(1.1);
+            background: #f8fafc;
+            border-color: #cbd5e1;
+            box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+        }
+        .chat-fab-btn.active {
+            background: #f1f5f9;
+            border-color: #94a3b8;
+            transform: rotate(15deg) scale(1.05);
+        }
+
+        /* ===== 聊天視窗 ===== */
+        .chat-window {
+            position: fixed;
+            bottom: 100px;
+            right: 20px;
+            width: 340px;
+            height: 480px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            z-index: 1199;
+            overflow: hidden;
+            transform: scale(0) translateY(20px);
+            transform-origin: bottom right;
+            transition: transform 0.28s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.25s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .chat-window.open {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+        @media (max-width: 400px) {
+            .chat-window {
+                right: 0;
+                left: 0;
+                width: 100%;
+                bottom: 90px;
+                border-radius: 20px 20px 0 0;
+            }
+        }
+
+        /* 聊天視窗 Header */
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .chat-header-icon {
+            width: 36px;
+            height: 36px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .chat-header-info {
+            flex: 1;
+        }
+        .chat-header-name {
+            font-weight: 700;
+            font-size: 15px;
+        }
+        .chat-header-sub {
+            font-size: 11px;
+            opacity: 0.8;
+            margin-top: 1px;
+        }
+        .chat-header-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        .chat-header-close:hover {
+            opacity: 1;
+        }
+
+        /* 訊息區域 */
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #f7f8fc;
+        }
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #ddd;
+            border-radius: 2px;
+        }
+
+        /* 訊息氣泡 */
+        .chat-bubble-wrap {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+        }
+        .chat-bubble-wrap.user {
+            flex-direction: row-reverse;
+        }
+        .chat-avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .chat-bubble {
+            max-width: 78%;
+            padding: 10px 13px;
+            border-radius: 16px;
+            font-size: 13.5px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .chat-bubble.bot {
+            background: white;
+            color: #2d3748;
+            border-radius: 4px 16px 16px 16px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .chat-bubble.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 16px 4px 16px 16px;
+        }
+
+        /* 打字中動畫 */
+        .chat-typing {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 10px 14px;
+            background: white;
+            border-radius: 4px 16px 16px 16px;
+            width: fit-content;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .chat-typing span {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #aaa;
+            animation: chatTypingDot 1.2s infinite ease-in-out;
+        }
+        .chat-typing span:nth-child(1) { animation-delay: 0s; }
+        .chat-typing span:nth-child(2) { animation-delay: 0.2s; }
+        .chat-typing span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes chatTypingDot {
+            0%, 60%, 100% { transform: translateY(0); background: #bbb; }
+            30% { transform: translateY(-6px); background: #667eea; }
+        }
+
+        /* 輸入區域 */
+        .chat-input-area {
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            border-top: 1px solid #eee;
+            background: white;
+            flex-shrink: 0;
+        }
+        .chat-input {
+            flex: 1;
+            padding: 9px 13px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 20px;
+            font-size: 13.5px;
+            outline: none;
+            transition: border-color 0.2s;
+            resize: none;
+            font-family: inherit;
+        }
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+        .chat-send-btn {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+        .chat-send-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+        }
+        .chat-send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* 歡迎提示 */
+        .chat-welcome {
+            text-align: center;
+            color: #a0aec0;
+            font-size: 12px;
+            padding: 6px 0 4px;
+            line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -853,6 +1166,10 @@
         <div class="header">
             <div class="title" onclick="goHomeOrderingView()" title="回到點餐介面">🍔 好棒棒點餐</div>
             <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="balance-container" style="display:flex; align-items:center; background: rgba(255,255,255,0.2); border-radius:20px; padding:6px 12px; font-weight:600; cursor:pointer;" onclick="openTopUpModal()">
+                    <span style="font-size: 14px; margin-right: 6px;">餘額: $</span><span id="userBalanceDisplay">0</span>
+                    <button style="margin-left: 8px; background: #fff; color: #667eea; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); pointer-events: none;">+</button>
+                </div>
                 <button class="cart-icon-btn" id="cartIconBtn">
                     🛒
                     <span class="cart-badge" id="cartBadge" style="display: none;">0</span>
@@ -942,6 +1259,10 @@
                             <span class="cart-summary-label">總計：</span>
                             <span class="cart-summary-total" id="cartTotal">$0</span>
                         </div>
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-top: 8px; color: #319795;">
+                            <span>我的餘額：</span>
+                            <span id="cartBalanceDisplay">$0</span>
+                        </div>
                     </div>
                     <button class="submit-btn" id="submitOrderBtn" style="margin-top: 12px;">📤 送出訂單</button>
                 </div>
@@ -962,6 +1283,122 @@
         let currentOrder = null;  // 當前訂單
         let isSessionClosedGlobal = false; // 是否已結單
         let initiatorIdGlobal = ''; // 團購發起人 ID
+        
+        // ===== 儲值金錢包 =====
+        async function fetchUserBalance() {
+            if (!userIdGlobal) return;
+            try {
+                const res = await fetch(`/api/user-balance/${userIdGlobal}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('userBalanceDisplay').textContent = data.balance || 0;
+                }
+            } catch (e) {
+                console.error('取得餘額失敗:', e);
+            }
+        }
+
+        function openTopUpModal() {
+            if (!userIdGlobal) {
+                Swal.fire({ icon: 'error', title: '錯誤', text: '請先登入' });
+                return;
+            }
+            
+            const currentBalance = document.getElementById('userBalanceDisplay').textContent;
+            
+            Swal.fire({
+                title: '儲值金錢包 (Stored Value Wallet)',
+                html: `
+                    <div style="font-size:24px; font-weight:bold; margin-bottom: 20px;">
+                        餘額: $${currentBalance}
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                        <div class="topup-card" onclick="selectTopup(this, 200)">
+                            <div style="font-size:20px; font-weight:bold;">$200</div>
+                            <div style="font-size:12px; color:#666;">獲得 $200 (送 $0)</div>
+                        </div>
+                        <div class="topup-card" onclick="selectTopup(this, 525)">
+                            <div style="font-size:20px; font-weight:bold;">$500</div>
+                            <div style="font-size:12px; color:#666;">獲得 $525 (送 $25)</div>
+                        </div>
+                        <div class="topup-card recommended" onclick="selectTopup(this, 1120)">
+                            <div class="tag">推薦</div>
+                            <div style="font-size:20px; font-weight:bold;">$1,000</div>
+                            <div style="font-size:12px; color:#666;">獲得 $1,120 (送 $120)</div>
+                        </div>
+                        <div class="topup-card recommended" onclick="selectTopup(this, 2300)">
+                            <div class="tag">推薦</div>
+                            <div style="font-size:20px; font-weight:bold;">$2,000</div>
+                            <div style="font-size:12px; color:#666;">獲得 $2,300 (送 $300)</div>
+                        </div>
+                        <div class="topup-card" onclick="selectTopup(this, 5900)">
+                            <div style="font-size:20px; font-weight:bold;">$5,000</div>
+                            <div style="font-size:12px; color:#666;">獲得 $5,900 (送 $900)</div>
+                        </div>
+                        <div class="topup-card" onclick="selectTopup(this, 12000)">
+                            <div style="font-size:20px; font-weight:bold;">$10,000</div>
+                            <div style="font-size:12px; color:#666;">獲得 $12,000 (送 $2,000)</div>
+                        </div>
+                    </div>
+                    <div style="text-align: left; font-weight: bold; margin-bottom: 10px;">付款方式</div>
+                    <div style="display: flex; gap: 10px; justify-content: center; margin-bottom: 20px;">
+                        <div class="pay-method active">Apple Pay</div>
+                        <div class="pay-method">VISA</div>
+                        <div class="pay-method">LINE Pay</div>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: '立即儲值',
+                cancelButtonText: '取消',
+                confirmButtonColor: '#667eea',
+                customClass: {
+                    popup: 'swal2-topup-popup'
+                },
+                didOpen: () => {
+                    window.selectedTopupAmount = undefined;
+                    
+                    document.querySelectorAll('.pay-method').forEach(btn => {
+                        btn.onclick = (e) => {
+                            document.querySelectorAll('.pay-method').forEach(b => b.classList.remove('active'));
+                            e.target.classList.add('active');
+                        };
+                    });
+                },
+                preConfirm: () => {
+                    if (!window.selectedTopupAmount) {
+                        Swal.showValidationMessage('請選擇儲值金額');
+                        return false;
+                    }
+                    return window.selectedTopupAmount;
+                }
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    try {
+                        Swal.fire({ title: '儲值中...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                        const res = await fetch('/api/user-balance/topup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_id: userIdGlobal, amount: result.value })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            document.getElementById('userBalanceDisplay').textContent = data.new_balance;
+                            Swal.fire({ icon: 'success', title: '儲值成功', text: `目前餘額: $${data.new_balance}`, confirmButtonColor: '#667eea' });
+                        } else {
+                            Swal.fire({ icon: 'error', title: '儲值失敗', text: data.error || '未知錯誤' });
+                        }
+                    } catch (e) {
+                        Swal.fire({ icon: 'error', title: '錯誤', text: '網路錯誤' });
+                    }
+                }
+            });
+        }
+
+        window.selectTopup = function(el, amount) {
+            document.querySelectorAll('.topup-card').forEach(c => c.classList.remove('selected'));
+            el.classList.add('selected');
+            window.selectedTopupAmount = amount;
+        }
         
         // ===== 歷史訂單 =====
         function openHistory() {
@@ -1162,6 +1599,7 @@
                 emptyCartMsg.style.display = 'none';
                 cartSummaryDiv.style.display = 'block';
                 document.getElementById('cartTotal').textContent = '$' + total;
+                document.getElementById('cartBalanceDisplay').textContent = '$' + (document.getElementById('userBalanceDisplay').textContent || '0');
                 cartBadge.textContent = itemCount;
                 cartBadge.style.display = 'flex';
             }
@@ -1224,6 +1662,7 @@
         }
         
         function openCart() {
+            updateCartDisplay();
             document.getElementById('cartModal').classList.add('show');
         }
         
@@ -1242,6 +1681,28 @@
             // 購物車空且沒有歷史訂單 → 不需送出
             if (isEmpty && !hasSubmittedOrder) {
                 alert('購物車是空的，請選擇餐點');
+                return;
+            }
+
+            const userTotal = Object.entries(cart).reduce((sum, [, item]) => sum + (item.price * item.quantity), 0);
+            const currentBalance = parseInt(document.getElementById('userBalanceDisplay').textContent || 0);
+            const previousTotal = currentOrder ? (currentOrder.total || 0) : 0;
+            const diff = userTotal - previousTotal;
+
+            if (diff > 0 && currentBalance < diff) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: '餘額不足',
+                    text: `您欲新增 $${diff} 的餐點，但餘額只有 $${currentBalance}`,
+                    showCancelButton: true,
+                    confirmButtonText: '前往儲值',
+                    cancelButtonText: '關閉',
+                    confirmButtonColor: '#75b798'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        openTopUpModal();
+                    }
+                });
                 return;
             }
 
@@ -1267,6 +1728,10 @@
 
                 if (response.ok) {
                     const data = await response.json();
+                    
+                    if (data.new_balance !== undefined) {
+                        document.getElementById('userBalanceDisplay').textContent = data.new_balance;
+                    }
 
                     if (data.status === 'cleared') {
                         // 購物車為空 → 訂單已從資料庫刪除，重置 UI
@@ -1835,6 +2300,9 @@
 
                 // 載入當前使用者的個人專屬店家庫
                 loadUserShops(userIdGlobal);
+                
+                // 載入當前使用者的錢包餘額
+                fetchUserBalance();
 
                 // 顯示歷史訂單按鈕
                 document.getElementById('historyBtn').style.display = 'flex';
@@ -2160,7 +2628,164 @@
             console.log('[Ready] 直接執行 initLiff()');
             initLiff();
         }
+
+        // ===== 聊天機器人邏輯 =====
+        let chatIsOpen = false;
+
+        function toggleChat() {
+            chatIsOpen = !chatIsOpen;
+            const win = document.getElementById('chatWindow');
+            const fab = document.getElementById('chatFabBtn');
+            const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="#1e293b"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>`;
+            if (chatIsOpen) {
+                win.classList.add('open');
+                fab.classList.add('active');
+                fab.innerHTML = '<span style="font-size:20px;color:#1e293b;font-weight:600;line-height:1;">✕</span>';
+                setTimeout(() => {
+                    const inp = document.getElementById('chatInput');
+                    if (inp) inp.focus();
+                }, 300);
+            } else {
+                win.classList.remove('open');
+                fab.classList.remove('active');
+                fab.innerHTML = svgIcon;
+            }
+        }
+
+        function chatAppendMessage(text, role) {
+            const container = document.getElementById('chatMessages');
+            const wrap = document.createElement('div');
+            wrap.className = `chat-bubble-wrap ${role}`;
+
+            if (role === 'bot') {
+                wrap.innerHTML = `
+                    <div class="chat-avatar">🤖</div>
+                    <div class="chat-bubble bot">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                `;
+            } else {
+                wrap.innerHTML = `
+                    <div class="chat-bubble user">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                `;
+            }
+            container.appendChild(wrap);
+            container.scrollTop = container.scrollHeight;
+            return wrap;
+        }
+
+        function chatShowTyping() {
+            const container = document.getElementById('chatMessages');
+            const wrap = document.createElement('div');
+            wrap.className = 'chat-bubble-wrap bot';
+            wrap.id = 'chatTypingIndicator';
+            wrap.innerHTML = `
+                <div class="chat-avatar">🤖</div>
+                <div class="chat-typing"><span></span><span></span><span></span></div>
+            `;
+            container.appendChild(wrap);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function chatHideTyping() {
+            const el = document.getElementById('chatTypingIndicator');
+            if (el) el.remove();
+        }
+
+        async function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const sendBtn = document.getElementById('chatSendBtn');
+            const message = input.value.trim();
+
+            if (!message) return;
+            if (!userIdGlobal) {
+                chatAppendMessage('⚠️ 請先登入才能使用此功能！', 'bot');
+                return;
+            }
+
+            // 顯示使用者訊息
+            chatAppendMessage(message, 'user');
+            input.value = '';
+            sendBtn.disabled = true;
+
+            // 顯示打字動畫
+            chatShowTyping();
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: userIdGlobal,
+                        message: message
+                    })
+                });
+                const data = await res.json();
+                chatHideTyping();
+
+                if (res.ok) {
+                    chatAppendMessage(data.reply || '抱歉，我現在沒辦法回答 😅', 'bot');
+                } else {
+                    chatAppendMessage(`❌ 錯誤：${data.error || '請稍後再試'}`, 'bot');
+                }
+            } catch (err) {
+                chatHideTyping();
+                chatAppendMessage('😥 網路錯誤，請稍後再試', 'bot');
+                console.error('[Chat] 錯誤:', err);
+            } finally {
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
     </script>
        
+    <!-- ===== 聊天機器人 - 浮動按鈕 ===== -->
+    <button class="chat-fab-btn" id="chatFabBtn" onclick="toggleChat()" title="美食推薦機器人">
+        <svg id="chatFabIcon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="#1e293b">
+            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+        </svg>
+    </button>
+
+    <!-- ===== 聊天機器人 - 聊天視窗 ===== -->
+    <div class="chat-window" id="chatWindow">
+        <!-- Header -->
+        <div class="chat-header">
+            <div class="chat-header-icon">🤖</div>
+            <div class="chat-header-info">
+                <div class="chat-header-name">美食推薦小幫手</div>
+                <div class="chat-header-sub">告訴我你想吃什麼！</div>
+            </div>
+            <button class="chat-header-close" onclick="toggleChat()">✕</button>
+        </div>
+
+        <!-- 訊息列表 -->
+        <div class="chat-messages" id="chatMessages">
+            <!-- 歡迎訊息 -->
+            <div class="chat-bubble-wrap bot">
+                <div class="chat-avatar">🤖</div>
+                <div class="chat-bubble bot">嗨！我是美食推薦小幫手 🍽️
+
+輸入品項名稱，我幫你找哪些店家有賣！
+可一次輸入多個品項，用空白或逗號分隔。
+
+例如：
+・「牛肉麵」
+・「珍珠奶茶 炸雞排」
+・「拿鐵，蛋糕，三明治」</div>
+            </div>
+        </div>
+
+        <!-- 輸入區域 -->
+        <div class="chat-input-area">
+            <input
+                type="text"
+                class="chat-input"
+                id="chatInput"
+                placeholder="可輸入多個品項，空白或逗號分隔..."
+                onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendChatMessage(); }"
+                maxlength="100"
+            >
+            <button class="chat-send-btn" id="chatSendBtn" onclick="sendChatMessage()">➤</button>
+        </div>
+    </div>
+
 </body>
 </html>
