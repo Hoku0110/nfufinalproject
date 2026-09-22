@@ -1159,6 +1159,100 @@
             padding: 6px 0 4px;
             line-height: 1.6;
         }
+
+        /* ===== 語音點餐 ===== */
+        .mic-fab-btn {
+            position: fixed;
+            bottom: 25px;
+            left: 95px; /* 購物車按鈕右邊 */
+            z-index: 999;
+            background: #ffffff;
+            color: #1e293b;
+            border: 2px solid #e2e8f0;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            font-size: 26px;
+            cursor: pointer;
+            display: none; /* 預設隱藏，菜單載入後才顯示 */
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .mic-fab-btn:hover {
+            transform: scale(1.1);
+            background: #f8fafc;
+            border-color: #cbd5e1;
+            box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+        }
+        .mic-fab-btn.listening {
+            background: #fff5f5;
+            border-color: #fc8181;
+            animation: micPulse 1.2s ease-in-out infinite;
+        }
+        .mic-fab-btn.processing {
+            background: #fffbf0;
+            border-color: #f6ad55;
+            cursor: not-allowed;
+        }
+        @keyframes micPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(252, 129, 129, 0.5); }
+            70%  { box-shadow: 0 0 0 14px rgba(252, 129, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(252, 129, 129, 0); }
+        }
+
+        /* 語音狀態浮動提示 */
+        .voice-toast {
+            position: fixed;
+            top: 70px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            background: rgba(30, 41, 59, 0.92);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 1300;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            max-width: 92vw;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .voice-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+            pointer-events: auto;
+        }
+        .voice-toast.success { background: rgba(56, 161, 105, 0.95); }
+        .voice-toast.warning { background: rgba(214, 158, 46, 0.95); }
+        .voice-toast.error   { background: rgba(229, 62, 62, 0.95); }
+        .voice-toast-undo {
+            flex-shrink: 0;
+            background: rgba(255,255,255,0.25);
+            border: 1.5px solid rgba(255,255,255,0.6);
+            color: white;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 5px 13px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.18s;
+            white-space: nowrap;
+        }
+        .voice-toast-undo:hover {
+            background: rgba(255,255,255,0.42);
+        }
+
+
     </style>
 </head>
 <body>
@@ -2735,8 +2829,366 @@
                 input.focus();
             }
         }
+
+        // ===== 語音點餐邏輯 =====
+        let voiceRecognition = null;
+        let voiceIsListening = false;
+        let voiceIsProcessing = false;
+        let voiceToastTimer = null;
+
+        let silenceTimer = null;
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        // 初始化 Web Speech API
+        function initSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                console.warn('[語音點餐] 此瀏覽器不支援 Web Speech API');
+                return null;
+            }
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'zh-TW';
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.maxAlternatives = 1;
+
+            function resetSilenceTimer() {
+                if (silenceTimer) clearTimeout(silenceTimer);
+                silenceTimer = setTimeout(() => {
+                    console.log('[語音點餐] 偵測到 3 秒靜音，自動結束收音');
+                    recognition.stop();
+                }, 3000);
+            }
+
+            recognition.onstart = () => {
+                console.log('[語音點餐] 開始收音...');
+                voiceIsListening = true;
+                finalTranscript = '';
+                interimTranscript = '';
+                setMicState('listening');
+                showVoiceToast('🎙️ 聆聽中... 請說出想點的餐點\n(停頓3秒會自動送出)', '');
+                resetSilenceTimer();
+            };
+
+            recognition.onresult = (event) => {
+                resetSilenceTimer();
+                interimTranscript = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                
+                const currentText = (finalTranscript + interimTranscript).trim();
+                if (currentText) {
+                    showVoiceToast(`🎙️ 聆聽中...\n💬 「${currentText}」`, '');
+                }
+            };
+
+            recognition.onerror = (event) => {
+                if (silenceTimer) clearTimeout(silenceTimer);
+                voiceIsListening = false;
+                setMicState('idle');
+                console.error('[語音點餐] 錯誤:', event.error);
+                if (event.error === 'not-allowed') {
+                    showVoiceToast('🚫 請允許麥克風權限後再試', 'error', 4000);
+                } else if (event.error === 'no-speech') {
+                    showVoiceToast('🔇 未偵測到語音，請再說一次', 'warning', 3000);
+                } else if (event.error === 'network') {
+                    showVoiceToast('📡 網路錯誤，請確認網路後再試', 'error', 3500);
+                } else {
+                    showVoiceToast(`❌ 語音辨識錯誤：${event.error}`, 'error', 3500);
+                }
+            };
+
+            recognition.onend = async () => {
+                if (silenceTimer) clearTimeout(silenceTimer);
+                
+                // 如果已經不是 listening 狀態（例如已經出錯或被手動關閉），直接退出
+                if (!voiceIsListening) return;
+                voiceIsListening = false;
+                
+                const transcript = finalTranscript.trim();
+                
+                if (!transcript) {
+                    setMicState('idle');
+                    showVoiceToast('🔇 未偵測到語音', 'warning', 3000);
+                    return;
+                }
+
+                console.log(`[語音點餐] 最終辨識結果：「${transcript}」`);
+                setMicState('processing');
+                showVoiceToast(`💬 「${transcript}」\n⏳ 解析中...`, '');
+                await processVoiceResult(transcript);
+            };
+
+            return recognition;
+        }
+
+
+        // 切換語音點餐（按下麥克風按鈕）
+        function toggleVoiceOrder() {
+            if (isSessionClosedGlobal) {
+                showVoiceToast('🔒 已結單，無法使用語音點餐', 'error', 3000);
+                return;
+            }
+            if (!menuDataGlobal || menuDataGlobal.length === 0) {
+                showVoiceToast('⚠️ 請先載入菜單後再使用語音點餐', 'warning', 3000);
+                return;
+            }
+            if (voiceIsProcessing) {
+                showVoiceToast('⏳ 正在處理中，請稍候...', 'warning', 2000);
+                return;
+            }
+
+            if (voiceIsListening) {
+                stopVoiceOrder();
+                return;
+            }
+            startVoiceOrder();
+        }
+
+        // 啟動語音辨識
+        function startVoiceOrder() {
+            if (!voiceRecognition) {
+                voiceRecognition = initSpeechRecognition();
+            }
+            if (!voiceRecognition) {
+                showVoiceToast('❌ 您的瀏覽器不支援語音辨識，請使用 Chrome 或 Android LINE', 'error', 4000);
+                return;
+            }
+            try {
+                voiceRecognition.start();
+            } catch (e) {
+                console.error('[語音點餐] 啟動失敗:', e);
+                // 若已在收音，先停止再重啟
+                try { voiceRecognition.stop(); } catch (_) {}
+                voiceRecognition = null;
+                setTimeout(() => startVoiceOrder(), 300);
+            }
+        }
+
+        // 停止語音辨識
+        function stopVoiceOrder() {
+            if (voiceRecognition && voiceIsListening) {
+                voiceRecognition.stop();
+            }
+            voiceIsListening = false;
+            setMicState('idle');
+            showVoiceToast('🛑 已停止收音', '', 1500);
+        }
+
+        // 呼叫後端 API 解析語音文字，並將結果加入/從購物車移除
+        async function processVoiceResult(transcript) {
+            voiceIsProcessing = true;
+            try {
+                const menuPayload = menuDataGlobal.map(item => ({
+                    item_name: item.item_name || item.name || item.品項名稱 || '',
+                    price: parseInt(item.price || item.價格 || 0)
+                })).filter(i => i.item_name);
+
+                // 將目前購物車傳給後端，讓 AI 知道哪些可以取消
+                const cartPayload = {};
+                for (const [name, data] of Object.entries(cart)) {
+                    cartPayload[name] = { price: data.price, quantity: data.quantity };
+                }
+
+                console.log('[語音點餐] 送出資料:', { voice_text: transcript, menu_count: menuPayload.length, cart: cartPayload });
+
+                const res = await fetch('/api/voice-order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        voice_text: transcript,
+                        menu_items: menuPayload,
+                        current_cart: cartPayload,
+                        session_id: sessionIdGlobal || null
+                    })
+                });
+
+                const data = await res.json();
+                console.log('[語音點餐] 後端回應:', data);
+
+                if (!res.ok) {
+                    showVoiceToast(`❌ ${data.error || '解析失敗'}`, 'error', 3500);
+                    return;
+                }
+
+                const addItems    = data.add    || [];
+                const removeItems = data.remove || [];
+                const unrecognized = data.unrecognized || [];
+
+                if (addItems.length === 0 && removeItems.length === 0) {
+                    const hint = unrecognized.length > 0
+                        ? `找不到「${unrecognized.join('、')}」，請確認品項名稱`
+                        : '未辨識到任何操作，請再說一次';
+                    showVoiceToast(`⚠️ ${hint}`, 'warning', 4000);
+                    return;
+                }
+
+                // 操作前備份購物車快照（用於撤銷）
+                lastVoiceSnapshot = JSON.parse(JSON.stringify(cart));
+
+                // 執行移除
+                removeItems.forEach(itemName => {
+                    if (cart[itemName]) {
+                        delete cart[itemName];
+                    }
+                });
+
+                // 執行新增
+                addItems.forEach(item => {
+                    const itemName = item.item_name;
+                    const qty = parseInt(item.quantity) || 1;
+                    const menuItem = menuDataGlobal.find(m => {
+                        const n = m.item_name || m.name || m.品項名稱 || '';
+                        return n === itemName;
+                    });
+                    const price = menuItem ? parseInt(menuItem.price || menuItem.價格 || 0) : 0;
+                    if (cart[itemName]) {
+                        cart[itemName].quantity += qty;
+                    } else {
+                        cart[itemName] = { price, quantity: qty };
+                    }
+                });
+
+                updateCartDisplay();
+
+                // 組合 Toast 訊息
+                const parts = [];
+                if (addItems.length > 0) {
+                    parts.push(`✅ 已加入：${addItems.map(r => `${r.item_name} ×${r.quantity}`).join('、')}`);
+                }
+                if (removeItems.length > 0) {
+                    parts.push(`🗑️ 已取消：${removeItems.join('、')}`);
+                }
+                if (unrecognized.length > 0) {
+                    parts.push(`⚠️ 未找到：${unrecognized.join('、')}`);
+                }
+                showVoiceToastWithUndo(parts.join('\n'), 5000);
+
+            } catch (err) {
+                console.error('[語音點餐] processVoiceResult 錯誤:', err);
+                showVoiceToast('😥 網路錯誤，請稍後再試', 'error', 3500);
+            } finally {
+                voiceIsProcessing = false;
+                setMicState('idle');
+            }
+        }
+
+        // 記錄語音點餐前的購物車快照（用於撤銷）
+        let lastVoiceSnapshot = null;
+
+        // 撤銷上一次語音點餐：從快照還原購物車
+        window.undoLastVoiceOrder = function(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            if (!lastVoiceSnapshot) return;
+            cart = lastVoiceSnapshot;
+            lastVoiceSnapshot = null;
+            updateCartDisplay();
+            showVoiceToast('↩️ 已撤銷語音點餐', '', 2000);
+        };
+
+        // 顯示帶「撤銷」按鈕的成功 Toast
+        function showVoiceToastWithUndo(message, duration = 5000) {
+            const toast = document.getElementById('voiceToast');
+            if (!toast) return;
+            if (voiceToastTimer) clearTimeout(voiceToastTimer);
+
+            toast.className = 'voice-toast success';
+            toast.innerHTML = `
+                <span style="flex:1;text-align:left;">${message.replace(/\n/g, '<br>')}</span>
+                <button class="voice-toast-undo" onpointerdown="window.undoLastVoiceOrder(event)" onclick="window.undoLastVoiceOrder(event)">↩️ 撤銷</button>
+            `;
+            
+            toast.classList.remove('show');
+            void toast.offsetWidth; // 強制重繪
+            toast.classList.add('show');
+            
+            voiceToastTimer = setTimeout(() => {
+                toast.classList.remove('show');
+                lastVoiceSnapshot = null; // 超時後不可再撤銷
+            }, duration);
+        }
+
+        // 更新麥克風按鈕狀態
+        function setMicState(state) {
+            const btn = document.getElementById('micFabBtn');
+            if (!btn) return;
+            btn.classList.remove('listening', 'processing');
+            if (state === 'listening') {
+                btn.classList.add('listening');
+                btn.innerHTML = '⏹️';
+                btn.title = '點擊停止收音';
+            } else if (state === 'processing') {
+                btn.classList.add('processing');
+                btn.innerHTML = '⏳';
+                btn.title = '解析中...';
+            } else {
+                btn.innerHTML = '🎙️';
+                btn.title = '語音點餐';
+            }
+        }
+
+        // 顯示語音 Toast 提示
+        function showVoiceToast(message, type = '', duration = 3000) {
+            const toast = document.getElementById('voiceToast');
+            if (!toast) return;
+            if (voiceToastTimer) clearTimeout(voiceToastTimer);
+
+            toast.className = 'voice-toast' + (type ? ` ${type}` : '');
+            toast.innerHTML = `<span style="flex:1;">${message.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</span>`;
+            
+            toast.classList.remove('show');
+            void toast.offsetWidth; // 強制重繪
+            toast.classList.add('show');
+
+            if (duration > 0) {
+                voiceToastTimer = setTimeout(() => {
+                    toast.classList.remove('show');
+                }, duration);
+            }
+        }
+
+        // 在 displayMenu 成功後顯示麥克風按鈕（原函式呼叫後 hook）
+        const _origDisplayMenu = displayMenu;
+        window.displayMenu = function(menuData) {
+            _origDisplayMenu(menuData);
+            const micBtn = document.getElementById('micFabBtn');
+            if (micBtn) {
+                if (menuData && menuDataGlobal && menuDataGlobal.length > 0) {
+                    micBtn.style.display = 'flex';
+                } else {
+                    micBtn.style.display = 'none';
+                }
+            }
+        };
+
+        // 在 renderShopEditor（編輯模式）時隱藏麥克風按鈕
+        const _origRenderShopEditor = renderShopEditor;
+        window.renderShopEditor = function(shopName, items) {
+            _origRenderShopEditor(shopName, items);
+            const micBtn = document.getElementById('micFabBtn');
+            if (micBtn) micBtn.style.display = 'none';
+        };
+
     </script>
        
+    <!-- ===== 語音點餐 - 麥克風浮動按鈕 ===== -->
+    <button class="mic-fab-btn" id="micFabBtn" onclick="toggleVoiceOrder()" title="語音點餐">
+        🎙️
+    </button>
+
+    <!-- ===== 語音點餐 - 狀態提示 Toast ===== -->
+    <div class="voice-toast" id="voiceToast"></div>
+
     <!-- ===== 聊天機器人 - 浮動按鈕 ===== -->
     <button class="chat-fab-btn" id="chatFabBtn" onclick="toggleChat()" title="美食推薦機器人">
         <svg id="chatFabIcon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="#1e293b">

@@ -13,7 +13,7 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from PIL import Image
-from ai_agent import extract_menu
+from ai_agent import extract_menu, parse_voice_order
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -690,6 +690,58 @@ def chat_recommend():
 
     except Exception as e:
         print(f"❌ [Chat API] 錯誤: {e}")
+        return {'error': str(e)}, 500
+
+
+# API端點：語音點餐解析（前端語音辨識後送來文字，後端比對菜單回傳品項與數量）
+@app.route("/api/voice-order", methods=['POST'])
+def voice_order():
+    try:
+        data = request.json
+        voice_text = (data.get('voice_text') or '').strip()
+        menu_items = data.get('menu_items', [])
+        session_id = data.get('session_id')
+        current_cart = data.get('current_cart', {})  # 目前購物車內容
+
+        if not voice_text:
+            return {'error': '語音文字為空，請重新說一次'}, 400
+
+        if not menu_items:
+            return {'error': '目前沒有可用的菜單，請先載入菜單'}, 400
+
+        # 檢查是否已結單
+        if session_id:
+            session_data = menu_sessions.get(session_id)
+            if not session_data and 'db' in globals() and db:
+                try:
+                    doc = db.collection('sessions').document(session_id).get()
+                    if doc.exists:
+                        session_data = doc.to_dict()
+                except Exception as se:
+                    print(f"⚠️ [語音點餐] 讀取 session 失敗: {se}")
+            if session_data and isinstance(session_data, dict) and session_data.get('is_closed'):
+                return {'error': '已結單，無法繼續點餐'}, 400
+
+        print(f"🎙️ [語音點餐 API] 文字：「{voice_text}」，菜單：{len(menu_items)} 項，購物車：{len(current_cart)} 項")
+        result = parse_voice_order(voice_text, menu_items, current_cart)
+
+        if result.get('error'):
+            # 如果錯誤訊息包含 503，提示系統忙碌
+            err_msg = result['error']
+            if '503' in err_msg or 'UNAVAILABLE' in err_msg:
+                err_msg = '目前 AI 系統忙碌中，請稍後再試'
+            return {'error': err_msg}, 500
+
+        return {
+            'status': 'success',
+            'voice_text': voice_text,
+            'add': result.get('add', []),
+            'remove': result.get('remove', []),
+            'unrecognized': result.get('unrecognized', []),
+        }, 200
+
+    except Exception as e:
+        print(f"❌ [語音點餐 API] 錯誤: {e}")
         return {'error': str(e)}, 500
 
 
