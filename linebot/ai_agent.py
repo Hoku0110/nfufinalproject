@@ -55,7 +55,7 @@ def extract_menu(image_input):
 
     # 設定模型與 Prompt
     model = "gemini-3-flash-preview"
-    prompt = "請檢視這張餐廳菜單的圖片，幫我辨識出店家名稱，以及所有的『品項名稱』與對應的『價格』。請以 JSON 物件輸出，包含 shop_name 與 menu_items 兩個欄位。若無法辨識店家名稱，shop_name 請填空字串。若圖片中找不到菜單資訊，請回傳空的 menu_items 陣列。"
+    prompt = "請檢視這張餐廳菜單的圖片，幫我辨識出店家名稱，以及所有的『品項名稱』與對應的『價格』。請『嚴格按照圖片上原本印製的大分類區塊（例如圖片上本身的標題或分類框）』，將每個品項對應到菜單原始的分類名稱。請以 JSON 物件輸出，包含 shop_name 與 menu_items 兩個欄位。若無法辨識店家名稱，shop_name 請填空字串。若圖片中找不到菜單資訊，請回傳空的 menu_items 陣列。"
 
     # 設定結構化輸出與參數
     generate_content_config = types.GenerateContentConfig(
@@ -74,7 +74,7 @@ def extract_menu(image_input):
                     description="菜單上的所有品項列表",
                     items=genai.types.Schema(
                         type=genai.types.Type.OBJECT,
-                        required=["item_name", "price"],
+                        required=["item_name", "price", "category"],
                         properties={
                             "item_name": genai.types.Schema(
                                 type=genai.types.Type.STRING,
@@ -83,6 +83,10 @@ def extract_menu(image_input):
                             "price": genai.types.Schema(
                                 type=genai.types.Type.INTEGER,
                                 description="餐點的價格（純數字）",
+                            ),
+                            "category": genai.types.Schema(
+                                type=genai.types.Type.STRING,
+                                description="請嚴格提取菜單圖片上標示的原始分類名稱（例如圖片上的群組標題）。若圖片中該品項沒有對應的分類標題，請填「未分類」",
                             ),
                         },
                     ),

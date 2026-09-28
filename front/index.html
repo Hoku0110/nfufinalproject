@@ -1253,6 +1253,41 @@
         }
 
 
+        .category-tabs-container {
+            display: flex;
+            overflow-x: auto;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .category-tabs-container::-webkit-scrollbar {
+            height: 4px;
+        }
+        .category-tabs-container::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 4px;
+        }
+        .category-tab {
+            padding: 8px 16px;
+            background: #edf2f7;
+            border: 1px solid #cbd5e0;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #4a5568;
+            white-space: nowrap;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .category-tab:hover {
+            background: #e2e8f0;
+        }
+        .category-tab.active {
+            background: #667eea;
+            color: white;
+            border-color: #5a67d8;
+        }
     </style>
 </head>
 <body>
@@ -1314,6 +1349,10 @@
                             <div id="closedStatusBanner" class="closed-banner" style="display: none;"></div>
                             <div id="myOrderSummaryCard" class="my-order-summary-card" style="display: none;"></div>
                             <div id="shopNameDisplay" style="margin-bottom: 12px; font-size: 16px; font-weight: 600; color: #444;"></div>
+                            <div id="menuSearchContainer" style="margin-bottom: 15px;">
+                                <input type="text" id="menuSearchInput" placeholder="🔍 搜尋餐點名稱..." style="width: 100%; padding: 10px 15px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 15px; outline: none; transition: border-color 0.2s;">
+                            </div>
+                            <div id="categoryTabs" class="category-tabs-container"></div>
                             <ul class="menu-list" id="menuList">
                             </ul>
                             <!-- 菜單下方送出訂單列 -->
@@ -2205,29 +2244,78 @@
                 const menuList = document.getElementById('menuList');
                 menuList.innerHTML = '';
                 
-                items.forEach((item, index) => {
-                    const li = document.createElement('li');
-                    li.className = 'menu-item';
-                    
-                    const itemName = item.item_name || item.name || item.品項名稱 || '未知品項';
-                    const itemPrice = parseInt(item.price || item.價格 || item.價錢 || 0);
-                    const itemId = `qty-item-${index}`;
-                    
-                    li.innerHTML = `
-                        <div class="menu-item-container">
-                            <div class="menu-item-info">
-                                <span class="item-name">${itemName}</span>
-                                <span class="item-price">$${itemPrice}</span>
-                            </div>
-                            <div class="quantity-controls">
-                                <button class="quantity-btn" data-item-name="${itemName}" data-delta="-1">−</button>
-                                <span class="quantity-display" id="${itemId}" data-item-name="${itemName}">${cart[itemName]?.quantity || 0}</span>
-                                <button class="quantity-btn" data-item-name="${itemName}" data-delta="1">+</button>
-                            </div>
-                        </div>
-                    `;
-                    menuList.appendChild(li);
+                // 依分類進行分組
+                const groupedItems = {};
+                items.forEach(item => {
+                    const category = item.category || '未分類';
+                    if (!groupedItems[category]) {
+                        groupedItems[category] = [];
+                    }
+                    groupedItems[category].push(item);
                 });
+
+                const categoryTabsContainer = document.getElementById('categoryTabs');
+                if (categoryTabsContainer) categoryTabsContainer.innerHTML = '';
+                
+                let globalIndex = 0;
+                let firstCategory = null;
+
+                for (const [category, catItems] of Object.entries(groupedItems)) {
+                    if (!firstCategory) firstCategory = category;
+                    
+                    if (categoryTabsContainer) {
+                        const tabBtn = document.createElement('div');
+                        tabBtn.className = 'category-tab';
+                        tabBtn.textContent = category;
+                        tabBtn.onclick = () => {
+                            // Update active tab
+                            document.querySelectorAll('.category-tab').forEach(btn => btn.classList.remove('active'));
+                            tabBtn.classList.add('active');
+                            
+                            // Show related items
+                            document.querySelectorAll('.menu-item').forEach(item => {
+                                if (item.dataset.category === category) {
+                                    item.style.display = 'flex';
+                                } else {
+                                    item.style.display = 'none';
+                                }
+                            });
+                        };
+                        if (category === firstCategory) {
+                            tabBtn.classList.add('active');
+                        }
+                        categoryTabsContainer.appendChild(tabBtn);
+                    }
+
+                    // 加入該分類的品項
+                    catItems.forEach((item) => {
+                        const li = document.createElement('li');
+                        li.className = 'menu-item';
+                        li.dataset.category = category; // Mark category for filtering
+                        li.style.display = category === firstCategory ? 'flex' : 'none'; // Only show first category initially
+                        
+                        const itemName = item.item_name || item.name || item.品項名稱 || '未知品項';
+                        const itemPrice = parseInt(item.price || item.價格 || item.價錢 || 0);
+                        const itemId = `qty-item-${globalIndex}`;
+                        globalIndex++;
+                        
+                        li.innerHTML = `
+                            <div class="menu-item-container">
+                                <div class="menu-item-info">
+                                    <span class="item-name">${itemName}</span>
+                                    <span class="item-price">$${itemPrice}</span>
+                                </div>
+                                <div class="quantity-controls">
+                                    <button class="quantity-btn" data-item-name="${itemName}" data-delta="-1">−</button>
+                                    <span class="quantity-display" id="${itemId}" data-item-name="${itemName}">${cart[itemName]?.quantity || 0}</span>
+                                    <button class="quantity-btn" data-item-name="${itemName}" data-delta="1">+</button>
+                                </div>
+                            </div>
+                        `;
+                        menuList.appendChild(li);
+                    });
+                }
+
 
                 document.getElementById('menuContent').style.display = 'block';
                 document.getElementById('submitOrderBtn').onclick = submitOrder;
@@ -2289,7 +2377,8 @@
             // 整理菜單格式
             const menuItems = menuDataGlobal.map(item => ({
                 item_name: item.item_name || item.name || item.品項名稱 || '未知品項',
-                price: parseInt(item.price || item.價格 || item.價錢 || 0)
+                price: parseInt(item.price || item.價格 || item.價錢 || 0),
+                category: item.category || '未分類'
             }));
 
             try {
@@ -2632,7 +2721,8 @@
                 items.forEach(item => {
                     const itemName = item.item_name || item.name || '';
                     const itemPrice = parseInt(item.price || 0);
-                    addEditItemRow(itemName, itemPrice);
+                    const itemCategory = item.category || '未分類';
+                    addEditItemRow(itemName, itemPrice, itemCategory);
                 });
             }
 
@@ -2646,11 +2736,12 @@
         }
 
         // 動態新增編輯品項列
-        function addEditItemRow(name = '', price = '') {
+        function addEditItemRow(name = '', price = '', category = '未分類') {
             const menuList = document.getElementById('menuList');
             const li = document.createElement('li');
             li.className = 'edit-item-row';
             li.innerHTML = `
+                <input type="text" class="edit-input-category" placeholder="分類(如:主食)" value="${category}" style="width: 80px; padding: 8px 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 14px;">
                 <input type="text" class="edit-input-name" placeholder="餐點/飲料名稱" value="${name}">
                 <input type="number" class="edit-input-price" placeholder="價格" value="${price}">
                 <button class="btn-delete-item" onclick="this.parentElement.remove()" title="刪除此項目">🗑️</button>
@@ -2673,15 +2764,18 @@
             const updatedItems = [];
 
             rows.forEach(row => {
+                const categoryInput = row.querySelector('.edit-input-category');
                 const nameInput = row.querySelector('.edit-input-name');
                 const priceInput = row.querySelector('.edit-input-price');
+                const category = categoryInput && categoryInput.value ? categoryInput.value.trim() : '未分類';
                 const name = nameInput.value ? nameInput.value.trim() : '';
                 const price = parseInt(priceInput.value || 0);
 
                 if (name) {
                     updatedItems.push({
                         item_name: name,
-                        price: price
+                        price: price,
+                        category: category
                     });
                 }
             });
@@ -3177,6 +3271,55 @@
             _origRenderShopEditor(shopName, items);
             const micBtn = document.getElementById('micFabBtn');
             if (micBtn) micBtn.style.display = 'none';
+        };
+
+        // ===== 搜尋餐點功能 =====
+        document.addEventListener('DOMContentLoaded', () => {
+            // 由於 menuSearchInput 是固定的 DOM 元素，我們可以直接在這裡加上監聽
+            // 或者使用事件委派。為了確保動態載入的支援，我們直接綁定到 document
+            document.addEventListener('input', (e) => {
+                if (e.target && e.target.id === 'menuSearchInput') {
+                    const keyword = e.target.value.toLowerCase().trim();
+                    const menuItems = document.querySelectorAll('.menu-item');
+                    const categoryTabs = document.getElementById('categoryTabs');
+                    
+                    if (keyword) {
+                        // 有搜尋字詞：隱藏分類頁籤，顯示符合的項目
+                        if (categoryTabs) categoryTabs.style.display = 'none';
+                        menuItems.forEach(item => {
+                            const itemName = item.querySelector('.item-name')?.textContent.toLowerCase() || '';
+                            if (itemName.includes(keyword)) {
+                                item.style.display = 'flex';
+                            } else {
+                                item.style.display = 'none';
+                            }
+                        });
+                    } else {
+                        // 清空搜尋：恢復分類頁籤，並點擊 active 頁籤來恢復過濾
+                        if (categoryTabs) categoryTabs.style.display = 'flex';
+                        const activeTab = document.querySelector('.category-tab.active');
+                        if (activeTab) {
+                            activeTab.click();
+                        } else {
+                            menuItems.forEach(item => item.style.display = 'flex');
+                        }
+                    }
+                }
+            });
+        });
+
+        // 攔截 displayMenu 確保切換菜單時清空搜尋狀態
+        const _origDisplayMenuSearch = displayMenu;
+        window.displayMenu = function(menuData) {
+            _origDisplayMenuSearch(menuData);
+            const searchInput = document.getElementById('menuSearchInput');
+            if (searchInput) {
+                searchInput.value = '';
+            }
+            const categoryTabs = document.getElementById('categoryTabs');
+            if (categoryTabs) {
+                categoryTabs.style.display = 'flex';
+            }
         };
 
     </script>
