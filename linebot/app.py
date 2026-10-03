@@ -1364,6 +1364,44 @@ def handle_text_message(event):
                         reply_text += f"💰 總金額：${total_amount}"
                         
                         print(f"🔒 [結單成功] 群組 {group_id} (發起人: {target_initiator_name}) 團購已結單。")
+                        
+                        # --------------------- 新增：匯出 JSON 檔案 ---------------------
+                        try:
+                            # 建立輸出的資料夾（若不存在則建立）
+                            output_dir = os.path.join(current_dir, 'output_orders')
+                            os.makedirs(output_dir, exist_ok=True)
+                            
+                            # 準備要輸出的 JSON 內容
+                            json_data = {
+                                "metadata": {
+                                    "group_id": group_id,
+                                    "session_id": target_session_id or "unknown",
+                                    "initiator": target_initiator_name,
+                                    "shop_name": target_shop_name,
+                                    "status": "closed",
+                                    "total_amount": total_amount,
+                                    "total_items_count": total_items_count
+                                },
+                                # 只保留群組總計的餐點品項與數量
+                                "summary_items": [
+                                    {"item_name": item_name, "quantity": qty}
+                                    for item_name, qty in global_item_summary.items()
+                                ]
+                            }
+                            
+                            # 產生檔名
+                            safe_session = target_session_id if target_session_id else group_id
+                            filename = f"Order_{safe_session}.json"
+                            file_path = os.path.join(output_dir, filename)
+                            
+                            # 寫入 JSON 檔
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                json.dump(json_data, f, ensure_ascii=False, indent=4)
+                                
+                            print(f"📄 [檔案輸出] 已成功產生訂單 JSON 檔：{file_path}")
+                        except Exception as json_e:
+                            print(f"⚠️ [檔案輸出] 產生 JSON 檔失敗: {json_e}")
+                        # ---------------------------------------------------------------
 
             
             elif real_command == "完成":

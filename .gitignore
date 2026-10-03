@@ -3,6 +3,7 @@
 
 # 忽略 Python 運作時產生的暫存檔
 __pycache__
+output_orders
 .pyc
 ngrok.exe
 linebot/finalproject-5f675-firebase-adminsdk-fbsvc-6bbed93f8d.json

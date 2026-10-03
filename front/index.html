@@ -2967,15 +2967,18 @@
 
             recognition.onresult = (event) => {
                 resetSilenceTimer();
-                interimTranscript = '';
+                let tempFinal = '';
+                let tempInterim = '';
                 
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                for (let i = 0; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
+                        tempFinal += event.results[i][0].transcript;
                     } else {
-                        interimTranscript += event.results[i][0].transcript;
+                        tempInterim += event.results[i][0].transcript;
                     }
                 }
+                finalTranscript = tempFinal;
+                interimTranscript = tempInterim;
                 
                 const currentText = (finalTranscript + interimTranscript).trim();
                 if (currentText) {
