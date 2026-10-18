@@ -2484,8 +2484,11 @@
                 // 載入當前使用者的個人專屬店家庫
                 loadUserShops(userIdGlobal);
                 
-                // 載入當前使用者的錢包餘額
+                // 載入當前使用者的錢包餘額，並設定每 5 秒即時更新
                 fetchUserBalance();
+                if (!window.balancePollTimer) {
+                    window.balancePollTimer = setInterval(fetchUserBalance, 5000);
+                }
 
                 // 顯示歷史訂單按鈕
                 document.getElementById('historyBtn').style.display = 'flex';

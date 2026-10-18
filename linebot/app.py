@@ -67,6 +67,48 @@ def serve_front():
 def serve_static(filename):
     return send_from_directory(front_path, filename)
 
+# --- 用戶名稱取得工具函式 ---
+def get_user_display_name(line_bot_api, user_id, group_id=None, fallback="使用者"):
+    """
+    可靠地取得用戶 LINE 暱稱：
+    1. 若在群組環境，優先使用 get_group_member_profile（即使未加機器人為好友也能正常取得）。
+    2. 若不在群組或群組 API 失敗，嘗試使用 get_profile（適用於已加好友或私聊情境）。
+    3. 若 LINE API 皆無法取得，嘗試從 Firestore users 資料庫讀取之前記錄過的真實姓名。
+    4. 最後回退到指定的 fallback 預設值。
+    """
+    if not user_id:
+        return fallback
+
+    # 1. 在群組中，優先使用群組成員 Profile API (群組成員不用加機器人好友也能查到)
+    if group_id:
+        try:
+            profile = line_bot_api.get_group_member_profile(group_id, user_id)
+            if profile and getattr(profile, 'display_name', None):
+                return profile.display_name
+        except Exception:
+            pass
+
+    # 2. 嘗試使用一般 get_profile (需要加機器人好友)
+    try:
+        profile = line_bot_api.get_profile(user_id)
+        if profile and getattr(profile, 'display_name', None):
+            return profile.display_name
+    except Exception:
+        pass
+
+    # 3. 嘗試從 Firestore 的 users 資料庫讀取之前記錄的名稱
+    try:
+        if 'db' in globals() and db:
+            user_doc = db.collection('users').document(user_id).get()
+            if user_doc.exists:
+                name = user_doc.to_dict().get('user_name')
+                if name and name not in ['使用者', '發起人', 'Unknown']:
+                    return name
+    except Exception:
+        pass
+
+    return fallback
+
 # API端點：取得LIFF ID
 @app.route("/api/config")
 def get_config():
@@ -87,6 +129,22 @@ def get_user_profile(user_id):
             }, 200
     except Exception as e:
         print(f"❌ 取得用戶名稱失敗: {e}")
+        # 若 LINE Bot API 抓不到（例如沒加機器人好友），嘗試從 Firebase 資料庫補救
+        if 'db' in globals() and db:
+            try:
+                user_doc = db.collection('users').document(user_id).get()
+                if user_doc.exists:
+                    udata = user_doc.to_dict()
+                    cached_name = udata.get('user_name')
+                    if cached_name and cached_name not in ['使用者', '發起人', 'Unknown']:
+                        return {
+                            'displayName': cached_name,
+                            'pictureUrl': '',
+                            'statusMessage': '',
+                            'userId': user_id
+                        }, 200
+            except Exception:
+                pass
         return {'error': str(e)}, 400
 
 # API端點：取得用戶餘額
@@ -537,7 +595,10 @@ def submit_order():
                 
             new_balance = current_balance - diff
             try:
-                user_ref.set({'balance': new_balance}, merge=True)
+                user_update = {'balance': new_balance}
+                if user_name and user_name not in ['Unknown', '使用者', '發起人']:
+                    user_update['user_name'] = user_name
+                user_ref.set(user_update, merge=True)
                 print(f"💰 [餘額更新] 用戶 {user_name} 餘額從 {current_balance} 變更為 {new_balance}")
             except Exception as e:
                 print(f"⚠️ 更新餘額失敗: {e}")
@@ -780,11 +841,8 @@ def handle_text_message(event):
                 else:
                     try:
                         user_id = event.source.user_id
-                        try:
-                            profile = line_bot_api.get_profile(user_id)
-                            user_name = profile.display_name
-                        except Exception:
-                            user_name = "使用者"
+                        group_id = getattr(event.source, 'group_id', None)
+                        user_name = get_user_display_name(line_bot_api, user_id, group_id, fallback="使用者")
 
                         message_content = line_bot_blob_api.get_message_content(quoted_id)
                         
@@ -849,12 +907,18 @@ def handle_text_message(event):
                 else:
                     user_id = event.source.user_id
                     group_id = getattr(event.source, 'group_id', None) or user_id
-                    
-                    try:
-                        profile = line_bot_api.get_profile(user_id)
-                        user_name = profile.display_name
-                    except Exception:
-                        user_name = "使用者"
+                    raw_group_id = getattr(event.source, 'group_id', None)
+                    user_name = get_user_display_name(line_bot_api, user_id, raw_group_id, fallback="使用者")
+
+                    # 若取得有效用戶名稱，順便更新至 users 個人檔案
+                    if user_name and user_name not in ['使用者', '發起人', 'Unknown'] and 'db' in globals() and db:
+                        try:
+                            db.collection('users').document(user_id).set({
+                                'user_name': user_name,
+                                'updated_at': firestore.SERVER_TIMESTAMP
+                            }, merge=True)
+                        except Exception:
+                            pass
 
                     # 從 Firebase 查詢發起人自己的個人資料庫 users/{user_id}/shops/{shop_name}
                     shop_doc = db.collection('users').document(user_id).collection('shops').document(shop_name).get()
@@ -988,12 +1052,17 @@ def handle_text_message(event):
                     try:
                         user_id = event.source.user_id
                         group_id = event.source.group_id  # 取得群組 ID
-                        
-                        try:
-                            profile = line_bot_api.get_profile(user_id)
-                            user_name = profile.display_name
-                        except Exception:
-                            user_name = "發起人"
+                        user_name = get_user_display_name(line_bot_api, user_id, group_id, fallback="發起人")
+
+                        # 若取得有效用戶名稱，順便更新至 users 個人檔案
+                        if user_name and user_name not in ['使用者', '發起人', 'Unknown'] and 'db' in globals() and db:
+                            try:
+                                db.collection('users').document(user_id).set({
+                                    'user_name': user_name,
+                                    'updated_at': firestore.SERVER_TIMESTAMP
+                                }, merge=True)
+                            except Exception:
+                                pass
 
                         message_content = line_bot_blob_api.get_message_content(quoted_id)
                         img = Image.open(io.BytesIO(message_content))
@@ -1145,6 +1214,12 @@ def handle_text_message(event):
                             target_shop_name = group_info.get('shop_name', '')
                             target_session_id = group_info.get('session_id')
 
+                    # 若發起人名稱為預設值，嘗試動態重新解析發起人的真實暱稱
+                    if target_initiator_id and target_initiator_name in ['發起人', '使用者', 'Unknown', '']:
+                        resolved_init_name = get_user_display_name(line_bot_api, target_initiator_id, group_id, fallback=target_initiator_name)
+                        if resolved_init_name and resolved_init_name not in ['發起人', '使用者']:
+                            target_initiator_name = resolved_init_name
+
                     group_orders = {}
 
                     # 3. 讀取發起人的點餐紀錄 (優先從 session/initiator 獨立資料庫)
@@ -1182,12 +1257,8 @@ def handle_text_message(event):
                             
                             # 優先使用 Firestore 保存的用戶名，其次嘗試 LINE Bot API
                             user_name = user_order.get('user_name', '')
-                            if not user_name or user_name == 'Unknown':
-                                try:
-                                    profile = line_bot_api.get_profile(user_id)
-                                    user_name = profile.display_name
-                                except:
-                                    user_name = f"使用者 {user_id[-4:]}"  # 只顯示後 4 位
+                            if not user_name or user_name in ['Unknown', '使用者']:
+                                user_name = get_user_display_name(line_bot_api, user_id, group_id, fallback=f"使用者 {user_id[-4:]}")
                             
                             # 統計個人與全群組品項
                             user_items = user_order.get('items', [])
@@ -1270,6 +1341,12 @@ def handle_text_message(event):
                             target_shop_name = group_info.get('shop_name', '')
                             target_session_id = group_info.get('session_id')
 
+                    # 若發起人名稱為預設值，嘗試動態重新解析發起人的真實暱稱
+                    if target_initiator_id and target_initiator_name in ['發起人', '使用者', 'Unknown', '']:
+                        resolved_init_name = get_user_display_name(line_bot_api, target_initiator_id, group_id, fallback=target_initiator_name)
+                        if resolved_init_name and resolved_init_name not in ['發起人', '使用者']:
+                            target_initiator_name = resolved_init_name
+
                     # 將 Session 及群組狀態更新為結單 (is_closed = True)
                     if target_session_id:
                         if target_session_id in menu_sessions and isinstance(menu_sessions[target_session_id], dict):
@@ -1320,12 +1397,8 @@ def handle_text_message(event):
                                 target_shop_name = shop_name
                             
                             user_name = user_order.get('user_name', '')
-                            if not user_name or user_name == 'Unknown':
-                                try:
-                                    profile = line_bot_api.get_profile(user_id)
-                                    user_name = profile.display_name
-                                except:
-                                    user_name = f"使用者 {user_id[-4:]}"
+                            if not user_name or user_name in ['Unknown', '使用者']:
+                                user_name = get_user_display_name(line_bot_api, user_id, group_id, fallback=f"使用者 {user_id[-4:]}")
                             
                             user_items = user_order.get('items', [])
                             items_str_list = []
@@ -1445,6 +1518,12 @@ def handle_text_message(event):
                                 target_shop_name = group_info.get('shop_name', '')
                                 target_session_id = group_info.get('session_id')
 
+                        # 若發起人名稱為預設值，嘗試動態重新解析發起人的真實暱稱
+                        if target_initiator_id and target_initiator_name in ['發起人', '使用者', 'Unknown', '']:
+                            resolved_init_name = get_user_display_name(line_bot_api, target_initiator_id, group_id, fallback=target_initiator_name)
+                            if resolved_init_name and resolved_init_name not in ['發起人', '使用者']:
+                                target_initiator_name = resolved_init_name
+
                         # 2. 讀取所有訂單
                         group_orders = {}
                         if target_session_id and 'db' in globals() and db:
@@ -1538,12 +1617,14 @@ def handle_text_message(event):
                 else:
                     # 尋找目前進行中的團購 session
                     target_session_id = None
+                    target_initiator_id = None
                     target_initiator_name = "發起人"
                     target_shop_name = ""
 
                     caller_init_doc = db.collection('groups').document(group_id).collection('initiators').document(caller_user_id).get()
                     if caller_init_doc.exists:
                         init_info = caller_init_doc.to_dict()
+                        target_initiator_id = caller_user_id
                         target_initiator_name = init_info.get('initiator_name', '發起人')
                         target_shop_name = init_info.get('shop_name', '')
                         target_session_id = init_info.get('session_id')
@@ -1551,9 +1632,16 @@ def handle_text_message(event):
                         group_doc = db.collection('groups').document(group_id).get()
                         if group_doc.exists:
                             group_info = group_doc.to_dict()
+                            target_initiator_id = group_info.get('initiator_id')
                             target_initiator_name = group_info.get('initiator_name', '發起人')
                             target_shop_name = group_info.get('shop_name', '')
                             target_session_id = group_info.get('session_id')
+
+                    # 若發起人名稱為預設值，嘗試動態重新解析發起人的真實暱稱
+                    if target_initiator_id and target_initiator_name in ['發起人', '使用者', 'Unknown', '']:
+                        resolved_init_name = get_user_display_name(line_bot_api, target_initiator_id, group_id, fallback=target_initiator_name)
+                        if resolved_init_name and resolved_init_name not in ['發起人', '使用者']:
+                            target_initiator_name = resolved_init_name
 
                     if not target_session_id:
                         reply_text = "❌ 找不到進行中的團購，無法取消結單"
