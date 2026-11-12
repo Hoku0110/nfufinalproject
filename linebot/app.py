@@ -678,10 +678,14 @@ def submit_order():
         print(f"❌ 提交訂單失敗: {e}")
         return {'error': str(e)}, 500
 
-# API端點：聊天機器人 - 輸入品項名稱（可多個），回傳有此品項的店家
+# API端點：聊天機器人 - 使用 AI 理解語意，模糊比對店家菜單品項，回傳有此品項的店家
 @app.route("/api/chat", methods=['POST'])
 def chat_recommend():
     try:
+        import re
+        from ai_agent import get_client
+        from google.genai import types as genai_types
+
         data = request.json
         user_id = data.get('user_id')
         raw_input = data.get('message', '').strip()
@@ -690,10 +694,6 @@ def chat_recommend():
             return {'error': '請先登入'}, 400
         if not raw_input:
             return {'error': '請輸入品項名稱'}, 400
-
-        # 支援空白、全形空白、逗號、頓號分隔多個品項
-        import re
-        keywords = [k.strip() for k in re.split(r'[,，、\s　]+', raw_input) if k.strip()]
 
         # 從 Firebase 讀取該用戶所有店家的菜單
         shops_data = []
@@ -724,30 +724,91 @@ def chat_recommend():
                 'found': False
             }, 200
 
-        # AND 邏輯：只列出同時擁有所有搜尋品項的店家
-        matched_shops = []
+        # 建立「店家 → 品項清單」的文字摘要，供 AI 做語意比對
+        shop_menu_summary = []
         for shop in shops_data:
-            # 取出該店所有品項名稱
-            shop_item_names = set()
+            item_names = []
             for item in shop['items']:
                 item_name = item.get('item_name') or item.get('name') or item.get('item') or ''
                 if item_name:
-                    shop_item_names.add(item_name)
+                    item_names.append(item_name)
+            if item_names:
+                shop_menu_summary.append({
+                    'shop_name': shop['shop_name'],
+                    'item_names': item_names
+                })
 
-            # 確認每個關鍵字都在該店的品項裡
-            if all(kw in shop_item_names for kw in keywords):
-                matched_shops.append(shop['shop_name'])
+        # 組成供 AI 閱讀的菜單文字
+        menu_text_lines = []
+        for s in shop_menu_summary:
+            items_joined = '、'.join(s['item_names'])
+            menu_text_lines.append(f"【{s['shop_name']}】{items_joined}")
+        menu_text = '\n'.join(menu_text_lines)
 
-        print(f"🔍 [Chat] 用戶 {user_id} 查詢 {keywords}（AND），找到 {len(matched_shops)} 間店")
+        # 呼叫 AI 做語意理解 + 模糊比對
+        ai_reply = None
+        try:
+            client = get_client()
+            prompt = f"""你是一個店家推薦助理。使用者會告訴你他想吃的食物，你需要根據下方提供的「店家菜單資料庫」，找出哪些店家同時有賣使用者想要的所有品項，並推薦給使用者。
 
-        kw_str = '、'.join(f'「{k}」' for k in keywords)
-        if matched_shops:
-            shop_list = '\n'.join(f'🏪 {s}' for s in matched_shops)
-            reply = f'同時有賣 {kw_str} 的店家：\n\n{shop_list}'
-        else:
-            reply = f'您的店家庫中沒有同時賣 {kw_str} 的店家。\n\n（提示：請輸入完整品項名稱）'
+【規則】
+1. 使用者輸入的品項可能是口語、簡稱、或描述（例如「珍奶」對應「珍珠奶茶」、「中杯紅茶」對應「紅茶(M)」、「大杯綠茶」對應「綠茶(L)」、「陽春麵」就找「陽春麵」）
+2. 請根據語意理解去比對菜單，允許同義詞、口語化表達、大小杯（如中杯=M、大杯=L）的轉換
+3. 只推薦同時擁有使用者所有需求品項的店家（AND 邏輯）
+4. 只輸出有找到的店家名稱清單，不要加上品項細節
+5. 若沒有任何店家同時符合，請說明找不到，並提示使用者換個方式描述
+6. 回覆請用繁體中文，語氣友善
 
-        return {'reply': reply, 'found': bool(matched_shops)}, 200
+【店家菜單資料庫】
+{menu_text}
+
+【使用者想吃的】
+{raw_input}
+
+請直接回覆推薦結果，格式範例：
+「同時有賣 OO 和 XX 的店家：
+🏪 店家甲
+🏪 店家乙」
+若找不到則說明原因。"""
+
+            models_to_try = ["gemini-3.6-flash", "gemini-3-flash-preview", "gemini-3.8-flash"]
+            for model_name in models_to_try:
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[prompt],
+                        config=genai_types.GenerateContentConfig(temperature=0.2)
+                    )
+                    ai_reply = response.text.strip()
+                    print(f"✅ [Chat AI] 使用模型 {model_name} 成功，回覆長度 {len(ai_reply)}")
+                    break
+                except Exception as me:
+                    print(f"⚠️ [Chat AI] 模型 {model_name} 失敗：{me}")
+
+        except Exception as ai_err:
+            print(f"⚠️ [Chat AI] AI 呼叫失敗，退回關鍵字比對模式: {ai_err}")
+
+        # 若 AI 失敗，退回原本的精確關鍵字比對模式
+        if not ai_reply:
+            keywords = [k.strip() for k in re.split(r'[,，、\s　]+', raw_input) if k.strip()]
+            matched_shops = []
+            for shop in shops_data:
+                shop_item_names = set()
+                for item in shop['items']:
+                    item_name = item.get('item_name') or item.get('name') or item.get('item') or ''
+                    if item_name:
+                        shop_item_names.add(item_name)
+                if all(kw in shop_item_names for kw in keywords):
+                    matched_shops.append(shop['shop_name'])
+            kw_str = '、'.join(f'「{k}」' for k in keywords)
+            if matched_shops:
+                shop_list = '\n'.join(f'🏪 {s}' for s in matched_shops)
+                ai_reply = f'同時有賣 {kw_str} 的店家：\n\n{shop_list}'
+            else:
+                ai_reply = f'您的店家庫中沒有同時賣 {kw_str} 的店家。'
+
+        print(f"🔍 [Chat] 用戶 {user_id} 查詢：{raw_input}")
+        return {'reply': ai_reply, 'found': True}, 200
 
     except Exception as e:
         print(f"❌ [Chat API] 錯誤: {e}")
