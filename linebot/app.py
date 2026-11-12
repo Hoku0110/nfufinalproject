@@ -1,6 +1,10 @@
 import os
 import io
 import json
+import glob
+import subprocess
+import sys
+import threading
 import uuid
 import urllib.parse
 from flask import Flask, request, abort, send_from_directory
@@ -865,6 +869,121 @@ def voice_order():
     except Exception as e:
         print(f"❌ [語音點餐 API] 錯誤: {e}")
         return {'error': str(e)}, 500
+
+
+FOODPANDA_ORDER_LOCK = threading.Lock()
+
+
+def find_order_file_for_chat(
+    group_id: str | None,
+    caller_user_id: str | None,
+    room_id: str | None = None,
+) -> tuple[str | None, str, str | None]:
+    """尋找目前群組或聊天室最新產生的訂單 JSON；回傳 (file_path, shop_name, warning_reason)。"""
+    output_dir = os.path.join(current_dir, 'output_orders')
+    if not os.path.isdir(output_dir):
+        return None, "", None
+
+    chat_match_id = group_id or room_id
+
+    # 1. 若在群組中，先檢查目前最新進行中的團購是否還沒「結單」，避免誤抓上一次的舊訂單 JSON
+    if group_id and 'db' in globals() and db:
+        try:
+            group_doc = db.collection('groups').document(group_id).get()
+            if group_doc.exists:
+                g_info = group_doc.to_dict() or {}
+                active_sid = g_info.get('session_id')
+                is_closed = bool(g_info.get('is_closed', False))
+                active_shop = g_info.get('shop_name', '')
+                if active_sid:
+                    active_path = os.path.join(output_dir, f"Order_{active_sid}.json")
+                    if not is_closed and not os.path.isfile(active_path):
+                        return None, active_shop, "not_closed"
+        except Exception as exc:
+            print(f"⚠️ [送出訂單] 查詢群組最新團購狀態失敗: {exc}")
+
+    # 2. 依檔案修改時間由新到舊掃描 output_orders/*.json，嚴格只取屬於目前聊天室的最新一筆 JSON
+    json_files = sorted(glob.glob(os.path.join(output_dir, '*.json')), key=os.path.getmtime, reverse=True)
+    for path in json_files:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            meta = data.get('metadata') or {}
+            if chat_match_id:
+                if meta.get('group_id') != chat_match_id:
+                    continue
+            elif caller_user_id:
+                # 1 對 1 聊天室若有綁定個人 ID 的訂單則優先匹配，否則退回最新一筆
+                if meta.get('group_id') and meta.get('group_id') != caller_user_id:
+                    continue
+            return path, meta.get('shop_name', ''), None
+        except Exception:
+            continue
+
+    # 1 對 1 私聊無對應 group_id 檔案時，退回資料夾內最新一筆
+    if not chat_match_id and json_files:
+        for path in json_files:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return path, (data.get('metadata') or {}).get('shop_name', ''), None
+            except Exception:
+                continue
+
+    return None, "", None
+
+
+def run_foodpanda_order_background(order_file_path: str, chat_target: str, shop_name: str) -> None:
+    """於背景執行 foodpanda_order.py，並在失敗時回報狀態至 LINE 聊天室（成功時由腳本主動推播購物車品項）。"""
+    acquired = FOODPANDA_ORDER_LOCK.acquire(blocking=False)
+    if not acquired:
+        return
+
+    try:
+        project_root = os.path.abspath(os.path.join(current_dir, '..'))
+        script_path = os.path.join(project_root, 'foodpanda_order.py')
+        if not os.path.isfile(script_path):
+            raise FileNotFoundError(f"找不到自動點餐腳本：{script_path}")
+
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        cmd = [
+            sys.executable,
+            script_path,
+            '--order-file',
+            order_file_path,
+            '--notify-line',
+            '--line-to',
+            chat_target,
+        ]
+        print(f"🚀 [送出訂單] 執行指令：{' '.join(cmd)}")
+        proc = subprocess.run(cmd, cwd=project_root, env=env)
+        if proc.returncode != 0:
+            with ApiClient(configuration) as api_client:
+                MessagingApi(api_client).push_message(
+                    PushMessageRequest(
+                        to=chat_target,
+                        messages=[
+                            TextMessage(
+                                text=f"⚠️ 【{shop_name or 'foodpanda'}】自動送出訂單未完成（結束碼：{proc.returncode}），請查看本機瀏覽器與終端機畫面確認。"
+                            )
+                        ],
+                    )
+                )
+    except Exception as exc:
+        print(f"❌ [送出訂單] 背景執行失敗: {exc}")
+        try:
+            with ApiClient(configuration) as api_client:
+                MessagingApi(api_client).push_message(
+                    PushMessageRequest(
+                        to=chat_target,
+                        messages=[TextMessage(text=f"❌ 【{shop_name or 'foodpanda'}】自動送出訂單失敗：{exc}")],
+                    )
+                )
+        except Exception as push_exc:
+            print(f"⚠️ [送出訂單] 回傳失敗通知至 LINE 失敗: {push_exc}")
+    finally:
+        FOODPANDA_ORDER_LOCK.release()
 
 
 @app.route("/callback", methods=['POST'])
@@ -1758,6 +1877,44 @@ def handle_text_message(event):
                                 print(f"🔓 [取消結單] 群組 {group_id} 團購取消結單。")
 
 
+            elif real_command == "送出訂單":
+                group_id = getattr(event.source, 'group_id', None)
+                room_id = getattr(event.source, 'room_id', None)
+                caller_user_id = event.source.user_id
+                chat_target = group_id or room_id or caller_user_id
+
+                if FOODPANDA_ORDER_LOCK.locked():
+                    reply_text = "⏳ 目前已有自動點餐任務正在執行中，請稍候完成後再試！"
+                else:
+                    order_file_path, target_shop_name, warning_reason = find_order_file_for_chat(
+                        group_id=group_id,
+                        caller_user_id=caller_user_id,
+                        room_id=room_id,
+                    )
+                    if warning_reason == "not_closed":
+                        shop_label = f"【{target_shop_name}】" if target_shop_name else ""
+                        reply_text = (
+                            f"⚠️ 目前本群組的團購{shop_label}尚未結單！\n"
+                            "請先輸入「@機器人 結單」產生最新訂單後，再輸入「@機器人 送出訂單」。"
+                        )
+                    elif not order_file_path:
+                        reply_text = (
+                            "❌ 找不到本聊天室可送出的已結單訂單檔案！\n"
+                            "請先輸入「@機器人 結單」產生訂單後，再輸入「@機器人 送出訂單」。"
+                        )
+                    else:
+                        worker = threading.Thread(
+                            target=run_foodpanda_order_background,
+                            args=(order_file_path, chat_target, target_shop_name),
+                            daemon=True,
+                        )
+                        worker.start()
+                        shop_label = f"【{target_shop_name}】" if target_shop_name else ""
+                        reply_text = (
+                            f"🚀 已開始執行{shop_label} foodpanda 自動點餐！\n"
+                            "請留意本機瀏覽器視窗，完成後會將目前購物車品項回傳至此聊天室。"
+                        )
+
             elif real_command == "清單":
                 caller_user_id = event.source.user_id
                 try:
@@ -1782,7 +1939,7 @@ def handle_text_message(event):
                     print(f"⚠️ [清單] 查詢失敗: {le}")
 
             else:
-                reply_text = f"我收到指令了：{real_command}\n(提示：支援指令有「上傳 (店家)」、「團購 (店家)」、「開團」、「清單」、「統整」、「結單」、「取消結單」、「完成」)"
+                reply_text = f"我收到指令了：{real_command}\n(提示：支援指令有「上傳 (店家)」、「團購 (店家)」、「開團」、「清單」、「統整」、「結單」、「取消結單」、「完成」、「送出訂單」)"
 
                 
             line_bot_api.reply_message_with_http_info(
